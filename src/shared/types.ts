@@ -184,6 +184,6 @@ export interface RUESettings {
   showROIBadge: boolean;
   showRentInfo: boolean;
   showOwnerHighlight: boolean;
-  showPlayerHUD: boolean;
+  showInfoMenu: boolean;
   overlayOpacity: number;
 }

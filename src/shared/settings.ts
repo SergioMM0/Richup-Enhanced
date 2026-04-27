@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: RUESettings = {
   showROIBadge: true,
   showRentInfo: true,
   showOwnerHighlight: true,
-  showPlayerHUD: true,
+  showInfoMenu: true,
   overlayOpacity: 0.85,
 };
 
