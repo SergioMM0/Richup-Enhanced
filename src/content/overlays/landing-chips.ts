@@ -4,6 +4,8 @@ import type {
   Participant,
   RUESettings,
 } from '@shared/types';
+import { airportLandingRent, cityLandingRent } from '../analytics/property';
+import { formatMoney } from '../analytics/player';
 import type { StateSource } from '../store-relay';
 
 const BOARD_SIZE = 40;
@@ -95,6 +97,10 @@ export const LANDING_CHIPS_CSS = `
     pointer-events: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   }
+  .rue-landing-chip--has-rent {
+    height: 48px;
+    border-radius: 24px;
+  }
   .rue-landing-chip__sum {
     font-size: 13px;
     font-weight: 700;
@@ -103,6 +109,17 @@ export const LANDING_CHIPS_CSS = `
     font-size: 9px;
     opacity: 0.85;
     margin-top: 2px;
+  }
+  .rue-landing-chip__rent {
+    font-size: 9px;
+    font-weight: 600;
+    margin-top: 2px;
+    opacity: 0.95;
+    color: #ffd27a;
+    display: none;
+  }
+  .rue-landing-chip--has-rent .rue-landing-chip__rent {
+    display: block;
   }
   .rue-landing-chip--redirected {
     border-style: dashed;
@@ -146,6 +163,7 @@ export const LANDING_CHIPS_CSS = `
 interface Chip {
   sum: number;
   el: HTMLDivElement;
+  rentEl: HTMLSpanElement;
 }
 
 export class LandingChipsOverlay {
@@ -182,9 +200,13 @@ export class LandingChipsOverlay {
       probEl.className = 'rue-landing-chip__prob';
       probEl.textContent = formatProbability(sum);
 
+      const rentEl = document.createElement('span');
+      rentEl.className = 'rue-landing-chip__rent';
+
       el.appendChild(sumEl);
       el.appendChild(probEl);
-      this.chips.push({ sum, el });
+      el.appendChild(rentEl);
+      this.chips.push({ sum, el, rentEl });
     }
   }
 
@@ -370,8 +392,15 @@ export class LandingChipsOverlay {
     const color = participant.appearance || '#ffffff';
     const blocks = root.state.blocks ?? [];
     const boardConfig = root.state.boardConfig;
+    const settings = root.state.settings;
+    // No `inPrison` flag exists on Participant; approximate via position. This
+    // also matches "just visiting" — acceptable noise for v1.
+    const hoveredInPrison =
+      participant.position === (boardConfig?.prisonBlockIndex ?? 10);
+    const suppressRent =
+      hoveredInPrison && !!settings?.noRentPaymentsWhileInPrison;
 
-    for (const { sum, el } of this.chips) {
+    for (const { sum, el, rentEl } of this.chips) {
       const prediction = predictLanding(
         blocks,
         boardConfig,
@@ -393,6 +422,29 @@ export class LandingChipsOverlay {
       el.style.setProperty('--rue-chip-color', color);
       el.classList.toggle('rue-landing-chip--redirected', prediction.redirected);
       el.classList.toggle('rue-landing-chip--uncertain', prediction.uncertain);
+
+      let rent: number | null = null;
+      if (
+        !prediction.redirected &&
+        !prediction.uncertain &&
+        !suppressRent &&
+        settings
+      ) {
+        const landed = blocks[prediction.tileIndex];
+        if (landed?.type === 'city') {
+          rent = cityLandingRent(landed, participant.id, blocks, settings);
+        } else if (landed?.type === 'airport') {
+          rent = airportLandingRent(landed, participant.id, blocks);
+        }
+      }
+      if (rent !== null) {
+        rentEl.textContent = formatMoney(rent);
+        el.classList.add('rue-landing-chip--has-rent');
+      } else {
+        rentEl.textContent = '';
+        el.classList.remove('rue-landing-chip--has-rent');
+      }
+
       if (el.parentNode !== this.container) {
         this.container.appendChild(el);
       }
