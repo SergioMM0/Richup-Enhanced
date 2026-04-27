@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rich Up Enhanced</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Rich Up Enhanced</h1>
+      <p class="version">v0.1.0</p>
+    </header>
+    <main>
+      <label class="row">
+        <span>Overlays enabled</span>
+        <input type="checkbox" data-key="overlaysEnabled" />
+      </label>
+      <label class="row">
+        <span>Show ROI badge</span>
+        <input type="checkbox" data-key="showROIBadge" />
+      </label>
+      <label class="row">
+        <span>Show rent info</span>
+        <input type="checkbox" data-key="showRentInfo" />
+      </label>
+      <label class="row">
+        <span>Show owner highlight</span>
+        <input type="checkbox" data-key="showOwnerHighlight" />
+      </label>
+      <label class="row">
+        <span>Show player HUD</span>
+        <input type="checkbox" data-key="showPlayerHUD" />
+      </label>
+      <label class="row column">
+        <span>Overlay opacity</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          data-key="overlayOpacity"
+        />
+        <output data-output-for="overlayOpacity"></output>
+      </label>
+    </main>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

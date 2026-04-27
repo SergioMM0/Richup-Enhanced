@@ -1,0 +1,70 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  width: 280px;
+  margin: 0;
+  padding: 12px 14px 16px;
+  background: #fafafa;
+  color: #111;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+header .version {
+  margin: 2px 0 12px;
+  font-size: 11px;
+  color: #888;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.row.column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.row input[type="range"] {
+  width: 100%;
+}
+
+output {
+  font-size: 11px;
+  color: #555;
+  text-align: right;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1c1c1e;
+    color: #f3f3f3;
+  }
+  header .version,
+  output {
+    color: #bbb;
+  }
+}

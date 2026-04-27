@@ -43,8 +43,10 @@ rue-extension/
 ├── package.json
 ├── src/
 │   ├── content/               ← injected into richup.io/room/*
-│   │   ├── index.ts           ← entry point: bootstraps everything
-│   │   ├── store-bridge.ts    ← accesses Zustand store via React fiber
+│   │   ├── main-world.ts      ← runs in page's MAIN world; walks fiber, finds store
+│   │   ├── index.ts           ← runs in ISOLATED world; owns chrome.* + overlays
+│   │   ├── store-relay.ts     ← isolated-side StateSource fed by postMessage
+│   │   ├── protocol.ts        ← typed message envelope between MAIN ↔ ISOLATED
 │   │   ├── overlay-manager.ts ← creates/positions/updates overlay divs
 │   │   ├── overlays/          ← individual overlay widget modules
 │   │   │   ├── tile-stats.ts  ← per-tile property stats widget
@@ -82,6 +84,12 @@ rue-extension/
   "permissions": ["storage", "contextMenus"],
   "host_permissions": ["https://richup.io/*"],
   "content_scripts": [
+    {
+      "matches": ["https://richup.io/room/*"],
+      "js": ["src/content/main-world.ts"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
     {
       "matches": ["https://richup.io/room/*"],
       "js": ["src/content/index.ts"],
@@ -148,9 +156,18 @@ The `richup-block-*` classes are semantic and stable (not obfuscated).
 The game uses **Zustand** for state management, exposed via React Context.
 The store is accessible by walking the React fiber tree from any game element.
 
+> ⚠️ **Two-world architecture (critical):** Chrome content scripts run in an
+> *isolated world* by default. The isolated world has its own JavaScript heap
+> and **cannot see `__reactFiber*` expandos** that the page sets on DOM nodes.
+> The fiber walk MUST run in the page's MAIN world. Use a second
+> `content_scripts` entry with `"world": "MAIN"` for the bridge, and relay
+> state to the isolated world via `window.postMessage`. The isolated world
+> keeps `chrome.*` APIs (storage, runtime) and renders the overlays.
+
 ### The Store Bridge Pattern
 
-The content script must locate the Zustand store once on load via the React fiber tree.
+The MAIN-world script locates the Zustand store once on load via the React
+fiber tree, then forwards state on every change to the isolated world.
 This is the single most important piece of the extension's architecture.
 
 ```typescript
@@ -202,44 +219,112 @@ export interface ZustandStore {
 }
 
 /**
- * Walks the React fiber tree from #app to find the Zustand game store
- * exposed via React Context. Returns null if not found (page not ready).
+ * Walks the React fiber tree to find the Zustand store. MUST run in the page's
+ * MAIN world (see two-world note above) — content-script isolated world cannot
+ * see __reactFiber expandos.
+ *
+ * Safety rules baked in below:
+ *   1. DFS via stack.pop() — never queue.shift() (O(n²) freezes the page).
+ *   2. Guard `typeof memoizedProps === 'object'` — text-node fibers have a
+ *      string memoizedProps, and `'value' in str` throws TypeError.
+ *   3. Strict matcher: getState + setState + subscribe (loose match invokes
+ *      arbitrary getState() methods on Provider values, which can hang).
+ *   4. WeakSet of visited nodes; per-walk time budget (200ms) so a slow walk
+ *      yields and retries on the next interval instead of locking the tab.
+ *   5. Inspect Provider values, hook memoizedState chain, AND stateNode —
+ *      Zustand stores can sit in any of those depending on how the page wires
+ *      them. Do NOT rely on `tag === 10` alone.
  */
 export function findGameStore(): ZustandStore | null {
-  const appEl = document.getElementById('app');
-  if (!appEl) return null;
+  const root = findReactRoot();           // tries #app, #root, #__next, then walks body
+  if (!root) return null;
 
-  const fiberKey = Object.keys(appEl).find(k => k.startsWith('__reactFiber'));
-  if (!fiberKey) return null;
+  const stack: any[] = [];
+  if (root.fiber.child) stack.push(root.fiber.child);
+  if (root.fiber.sibling) stack.push(root.fiber.sibling);
 
-  const rootFiber = (appEl as any)[fiberKey];
-  const queue: any[] = [rootFiber.child];
-  let visited = 0;
+  const seen = new WeakSet<object>();
+  const startedAt = performance.now();
+  let best: ZustandStore | null = null;
+  let bestScore = -1;
 
-  while (queue.length && visited < 3000) {
-    const node = queue.shift();
-    if (!node) continue;
-    visited++;
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || (typeof node === 'object' && seen.has(node))) continue;
+    seen.add(node);
 
-    // React Context Provider nodes have tag === 10
-    if (node.tag === 10) {
-      const value = node.memoizedProps?.value;
-      if (
-        value &&
-        typeof value.getState === 'function' &&
-        typeof value.subscribe === 'function' &&
-        value.getState().selfParticipantId !== undefined
-      ) {
-        return value as ZustandStore;
-      }
+    if (performance.now() - startedAt > 200) break; // yield, retry on next tick
+
+    const props = node.memoizedProps;
+    if (props && typeof props === 'object' && 'value' in props) {
+      const c = inspectCandidate(props.value);
+      if (c && score(c) > bestScore) { best = c.store; bestScore = score(c); }
     }
 
-    if (node.child) queue.push(node.child);
-    if (node.sibling) queue.push(node.sibling);
+    let hook = node.memoizedState;
+    let steps = 0;
+    while (hook && typeof hook === 'object' && steps < 50) {
+      const c = inspectCandidate(hook.memoizedState);
+      if (c && score(c) > bestScore) { best = c.store; bestScore = score(c); }
+      hook = hook.next;
+      steps++;
+    }
+
+    const c = inspectCandidate(node.stateNode);
+    if (c && score(c) > bestScore) { best = c.store; bestScore = score(c); }
+
+    if (node.child) stack.push(node.child);
+    if (node.sibling) stack.push(node.sibling);
   }
-  return null;
+  return best;
+}
+
+function inspectCandidate(value: any) {
+  if (!value || typeof value !== 'object') return null;
+  // All four are required — a looser check causes hangs.
+  if (typeof value.getState !== 'function') return null;
+  if (typeof value.subscribe !== 'function') return null;
+  if (typeof value.setState !== 'function') return null;
+  let root: any;
+  try { root = value.getState(); } catch { return null; }
+  if (!root || typeof root !== 'object') return null;
+  return {
+    store: value as ZustandStore,
+    hasState: 'state' in root,
+    hasSelfParticipantId: 'selfParticipantId' in root,
+    hasIsReady: 'isReady' in root,
+  };
+}
+function score(c: any) {
+  return (c.hasSelfParticipantId ? 5 : 0) + (c.hasState ? 3 : 0) + (c.hasIsReady ? 2 : 0);
 }
 ```
+
+### Cross-World State Relay
+
+The MAIN-world script subscribes to the store and forwards each state snapshot
+to the isolated world. State must be JSON-serializable (no functions, DOM
+nodes) before crossing — `JSON.stringify` with a function-stripping replacer
+is the simplest way. Throttle pushes via `requestAnimationFrame` to avoid
+flooding postMessage on rapid Zustand updates.
+
+```typescript
+// MAIN world
+const serialized = JSON.parse(
+  JSON.stringify(state, (_k, v) => (typeof v === 'function' ? undefined : v))
+);
+window.postMessage({ source: 'rue-main', type: 'state', payload: serialized }, location.origin);
+
+// ISOLATED world
+window.addEventListener('message', (e) => {
+  if (e.source !== window) return;
+  if (e.data?.source !== 'rue-main') return;
+  // e.data is the latest state snapshot
+});
+```
+
+The isolated world exposes a `StateSource` interface (`getState()`, `subscribe()`)
+that the OverlayManager consumes — it never sees the live Zustand store directly.
 
 ### Extracting Per-Tile Property Data from Fiber
 
@@ -523,17 +608,23 @@ chrome.contextMenus.onClicked.addListener((info) => {
 
 ---
 
-## Bootstrap Flow (content script)
+## Bootstrap Flow (two content scripts)
 
 ```
 document_idle fires on richup.io/room/*
-→ Wait for #app and __reactFiber to be present (poll with requestAnimationFrame)
-→ findGameStore() → walk React fiber tree → get ZustandStore
-→ Wait for store.getState().isReady === true
-→ OverlayManager.init(store)
+
+MAIN world (src/content/main-world.ts):
+→ findGameStore() polls every 250ms via DFS fiber walk (200ms time budget)
+→ On hit: subscribe(store) → on each change, postMessage serialized state
+→ Also responds to 'request-state' / 'request-diagnostic' from isolated world
+
+ISOLATED world (src/content/index.ts):
+→ store-relay.ts listens for postMessage from MAIN
+→ waitForRelayReady() resolves once first state snapshot arrives
+→ OverlayManager.init(stateSource)  ← consumes a StateSource interface, NOT the live store
 → Inject container div with Shadow DOM into document.body
 → Render 40 tile overlays positioned over [data-board-block-index] elements
-→ Subscribe to store changes for reactive updates
+→ Subscribe to relay for reactive updates
 → ResizeObserver on [data-testid="board"] for repositioning
 → Listen for URL changes (SPA navigation) → destroy and re-init if needed
 ```
@@ -546,7 +637,19 @@ document_idle fires on richup.io/room/*
    attributes and `richup-block-*` classes only.
 
 2. **The fiber walk is the entry point** — there is no global `window.gameStore` or similar.
-   The store must always be accessed by walking the fiber tree from `#app`.
+   The store must always be accessed by walking the fiber tree, **and the walk
+   MUST run in the page's MAIN world**. Isolated-world content scripts cannot
+   see `__reactFiber*` expandos. State crosses to isolated via `postMessage`.
+
+   Walk safety rules (learned the hard way; ignore at your peril):
+   - DFS via `stack.pop()` — never `queue.shift()` (O(n²) freezes the tab).
+   - Guard `typeof memoizedProps === 'object'` before any property access.
+     Text-node fibers have a string `memoizedProps` and `'value' in str` throws.
+   - Match strictly on `getState + setState + subscribe` — looser matching
+     invokes random `getState()` methods on Provider values that may hang.
+   - Inspect Provider values, hook `memoizedState` chain, AND `stateNode`
+     (don't rely on `tag === 10`).
+   - 200ms per-walk time budget; retry on next interval if exceeded.
 
 3. **The store is nested**: `store.getState()` returns a root object. The game data is in
    `store.getState().state` (the inner `state` key), not at the root level.

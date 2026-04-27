@@ -1,0 +1,22 @@
+{
+  "name": "rue-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Rich Up Enhanced — analytics overlay for richup.io",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}
