@@ -10,27 +10,24 @@ import type { StateSource } from '../store-relay';
 
 const BOARD_SIZE = 40;
 
-const COMBOS_OUT_OF_36: Record<number, number> = {
-  2: 1,
-  3: 2,
-  4: 3,
-  5: 4,
-  6: 5,
-  7: 6,
-  8: 5,
-  9: 4,
-  10: 3,
-  11: 2,
-  12: 1,
-};
+type TileSide = 'top' | 'right' | 'bottom' | 'left' | 'corner';
+// Fixed chip footprint. The chip is meant to *replace* the host page's price
+// label, so we anchor it flush against the tile's outer edge with a 1px inset
+// rather than the older ratio-based position (which left the chip overhanging
+// the tile when it grew taller).
+const CHIP_WIDTH = 64;
+const CHIP_HEIGHT = 30;
+const CHIP_INSET = 1;
+
+function tileSide(index: number): TileSide {
+  if (index === 0 || index === 10 || index === 20 || index === 30) return 'corner';
+  if (index < 10) return 'top';
+  if (index < 20) return 'right';
+  if (index < 30) return 'bottom';
+  return 'left';
+}
 
 const DICE_SUMS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
-
-function formatProbability(sum: number): string {
-  const combos = COMBOS_OUT_OF_36[sum] ?? 0;
-  const pct = (combos / 36) * 100;
-  return `${pct.toFixed(1)}%`;
-}
 
 interface Prediction {
   tileIndex: number;
@@ -38,7 +35,7 @@ interface Prediction {
   uncertain: boolean;  // landed on a bonus tile; card may teleport
 }
 
-const LANDING_CHIPS_BUILD = 'v3-2026-04-27';
+const LANDING_CHIPS_BUILD = 'v4-2026-04-27';
 console.log('[RUE landing-chips] module loaded', LANDING_CHIPS_BUILD);
 
 // Gated behind sessionStorage rather than `window.__rueDebug` because content
@@ -73,6 +70,22 @@ function predictLanding(
   return { tileIndex: raw, redirected: false, uncertain: false };
 }
 
+function chipAnchor(
+  tileEl: HTMLElement,
+  tileIndex: number,
+): { x: number; y: number } {
+  const r = tileEl.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  switch (tileSide(tileIndex)) {
+    case 'top':    return { x: cx, y: r.top + CHIP_INSET + CHIP_HEIGHT / 2 };
+    case 'bottom': return { x: cx, y: r.bottom - CHIP_INSET - CHIP_HEIGHT / 2 };
+    case 'left':   return { x: r.left + CHIP_INSET + CHIP_WIDTH / 2, y: cy };
+    case 'right':  return { x: r.right - CHIP_INSET - CHIP_WIDTH / 2, y: cy };
+    case 'corner': return { x: cx, y: cy };
+  }
+}
+
 export const LANDING_CHIPS_CSS = `
   .rue-landing-chips {
     position: absolute;
@@ -81,88 +94,95 @@ export const LANDING_CHIPS_CSS = `
   }
   .rue-landing-chip {
     position: absolute;
-    width: 38px;
-    height: 38px;
+    width: 64px;
+    height: 30px;
     transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto 1fr;
+    column-gap: 4px;
+    row-gap: 1px;
     align-items: center;
-    justify-content: center;
-    background: rgba(15, 18, 28, 0.88);
+    padding: 3px 6px;
+    box-sizing: border-box;
+    background: #0f121c;
     color: #fff;
-    border: 2px solid var(--rue-chip-color, #ffffff);
-    border-radius: 999px;
+    border-radius: 5px;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     line-height: 1;
     pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
   }
-  .rue-landing-chip--has-rent {
-    height: 48px;
-    border-radius: 24px;
+  /* Player-color accent on the tile's outer edge — tells you whose chip it is
+     without the heavy full border the previous design used. */
+  .rue-landing-chip::before {
+    content: "";
+    position: absolute;
+    background: var(--rue-chip-color, #ffffff);
+    pointer-events: none;
   }
-  .rue-landing-chip__sum {
-    font-size: 13px;
-    font-weight: 700;
+  .rue-landing-chip--side-top::before {
+    top: 0; left: 0; right: 0; height: 2px;
   }
-  .rue-landing-chip__prob {
-    font-size: 9px;
-    opacity: 0.85;
-    margin-top: 2px;
+  .rue-landing-chip--side-bottom::before {
+    bottom: 0; left: 0; right: 0; height: 2px;
   }
-  .rue-landing-chip__rent {
-    font-size: 9px;
-    font-weight: 600;
-    margin-top: 2px;
-    opacity: 0.95;
-    color: #ffd27a;
+  .rue-landing-chip--side-left::before {
+    top: 0; bottom: 0; left: 0; width: 2px;
+  }
+  .rue-landing-chip--side-right::before {
+    top: 0; bottom: 0; right: 0; width: 2px;
+  }
+  /* Corners have no clear "outer edge" to stripe — fall back to a thin frame. */
+  .rue-landing-chip--side-corner {
+    border: 1.5px solid var(--rue-chip-color, #ffffff);
+  }
+  .rue-landing-chip--side-corner::before {
     display: none;
   }
-  .rue-landing-chip--has-rent .rue-landing-chip__rent {
-    display: block;
+  .rue-landing-chip__sum {
+    grid-area: 1 / 1;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .rue-landing-chip__price {
+    grid-area: 1 / 2;
+    font-size: 9px;
+    opacity: 0.75;
+    text-align: right;
+  }
+  .rue-landing-chip__rent {
+    grid-area: 2 / 1 / 3 / 3;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ffd27a;
+    text-align: center;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .rue-landing-chip--redirected {
-    border-style: dashed;
-    background: rgba(120, 40, 40, 0.92);
+    background: #4a1f1f;
   }
-  .rue-landing-chip--redirected::after {
-    content: "→";
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 16px;
-    height: 16px;
-    line-height: 14px;
-    text-align: center;
-    background: rgba(120, 40, 40, 0.95);
-    border: 1px solid var(--rue-chip-color, #ffffff);
-    border-radius: 50%;
-    font-size: 11px;
-    font-weight: 700;
+  .rue-landing-chip--redirected .rue-landing-chip__rent {
+    color: #ffb0b0;
+    font-size: 10px;
   }
-  .rue-landing-chip--uncertain {
-    border-style: dashed;
-  }
-  .rue-landing-chip--uncertain::after {
-    content: "?";
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 16px;
-    height: 16px;
-    line-height: 14px;
-    text-align: center;
-    background: rgba(15, 18, 28, 0.95);
-    border: 1px solid var(--rue-chip-color, #ffffff);
-    border-radius: 50%;
-    font-size: 11px;
-    font-weight: 700;
+  .rue-landing-chip--uncertain .rue-landing-chip__rent {
+    color: #cfd8e3;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 10px;
   }
 `;
 
 interface Chip {
   sum: number;
   el: HTMLDivElement;
+  priceEl: HTMLSpanElement;
   rentEl: HTMLSpanElement;
 }
 
@@ -196,17 +216,16 @@ export class LandingChipsOverlay {
       sumEl.className = 'rue-landing-chip__sum';
       sumEl.textContent = String(sum);
 
-      const probEl = document.createElement('span');
-      probEl.className = 'rue-landing-chip__prob';
-      probEl.textContent = formatProbability(sum);
+      const priceEl = document.createElement('span');
+      priceEl.className = 'rue-landing-chip__price';
 
       const rentEl = document.createElement('span');
       rentEl.className = 'rue-landing-chip__rent';
 
       el.appendChild(sumEl);
-      el.appendChild(probEl);
+      el.appendChild(priceEl);
       el.appendChild(rentEl);
-      this.chips.push({ sum, el, rentEl });
+      this.chips.push({ sum, el, priceEl, rentEl });
     }
   }
 
@@ -400,7 +419,7 @@ export class LandingChipsOverlay {
     const suppressRent =
       hoveredInPrison && !!settings?.noRentPaymentsWhileInPrison;
 
-    for (const { sum, el, rentEl } of this.chips) {
+    for (const { sum, el, priceEl, rentEl } of this.chips) {
       const prediction = predictLanding(
         blocks,
         boardConfig,
@@ -414,36 +433,47 @@ export class LandingChipsOverlay {
         el.remove();
         continue;
       }
-      const rect = tileEl.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
+      const side = tileSide(prediction.tileIndex);
+      const { x: cx, y: cy } = chipAnchor(tileEl, prediction.tileIndex);
       el.style.left = `${cx}px`;
       el.style.top = `${cy}px`;
       el.style.setProperty('--rue-chip-color', color);
-      el.classList.toggle('rue-landing-chip--redirected', prediction.redirected);
-      el.classList.toggle('rue-landing-chip--uncertain', prediction.uncertain);
+      // Rebuild className so we don't accumulate stale --side-* classes when a
+      // chip is reused for a tile on a different side across renders.
+      let cls = `rue-landing-chip rue-landing-chip--side-${side}`;
+      if (prediction.redirected) cls += ' rue-landing-chip--redirected';
+      if (prediction.uncertain) cls += ' rue-landing-chip--uncertain';
+      el.className = cls;
 
-      let rent: number | null = null;
+      const landed = blocks[prediction.tileIndex];
+      const definite = !prediction.redirected && !prediction.uncertain;
+
+      let priceText = '';
       if (
-        !prediction.redirected &&
-        !prediction.uncertain &&
-        !suppressRent &&
-        settings
+        definite &&
+        (landed?.type === 'city' ||
+          landed?.type === 'airport' ||
+          landed?.type === 'company')
       ) {
-        const landed = blocks[prediction.tileIndex];
+        priceText = formatMoney(landed.price);
+      }
+      priceEl.textContent = priceText;
+
+      let rentText = '';
+      if (prediction.redirected) {
+        rentText = '→ JAIL';
+      } else if (prediction.uncertain) {
+        rentText = '? bonus';
+      } else if (!suppressRent && settings) {
+        let rent: number | null = null;
         if (landed?.type === 'city') {
           rent = cityLandingRent(landed, participant.id, blocks, settings);
         } else if (landed?.type === 'airport') {
           rent = airportLandingRent(landed, participant.id, blocks);
         }
+        if (rent !== null) rentText = formatMoney(rent);
       }
-      if (rent !== null) {
-        rentEl.textContent = formatMoney(rent);
-        el.classList.add('rue-landing-chip--has-rent');
-      } else {
-        rentEl.textContent = '';
-        el.classList.remove('rue-landing-chip--has-rent');
-      }
+      rentEl.textContent = rentText;
 
       if (el.parentNode !== this.container) {
         this.container.appendChild(el);
