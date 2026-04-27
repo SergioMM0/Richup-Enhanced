@@ -185,5 +185,6 @@ export interface RUESettings {
   showRentInfo: boolean;
   showOwnerHighlight: boolean;
   showInfoMenu: boolean;
+  showLandingChips: boolean;
   overlayOpacity: number;
 }

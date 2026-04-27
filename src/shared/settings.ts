@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: RUESettings = {
   showRentInfo: true,
   showOwnerHighlight: true,
   showInfoMenu: true,
+  showLandingChips: true,
   overlayOpacity: 0.85,
 };
 

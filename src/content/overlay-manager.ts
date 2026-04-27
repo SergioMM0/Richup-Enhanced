@@ -2,6 +2,10 @@ import type { RUESettings } from '@shared/types';
 import { DEFAULT_SETTINGS } from '@shared/settings';
 import type { StateSource } from './store-relay';
 import { INFO_MENU_CSS, InfoMenuOverlay } from './overlays/info-menu';
+import {
+  LANDING_CHIPS_CSS,
+  LandingChipsOverlay,
+} from './overlays/landing-chips';
 
 const CONTAINER_ID = 'rue-overlay-root';
 
@@ -15,6 +19,7 @@ const SHADOW_CSS = `
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   ${INFO_MENU_CSS}
+  ${LANDING_CHIPS_CSS}
 `;
 
 export class OverlayManager {
@@ -23,6 +28,7 @@ export class OverlayManager {
   private host: HTMLDivElement | null = null;
   private rootEl: HTMLDivElement | null = null;
   private infoMenu: InfoMenuOverlay | null = null;
+  private landingChips: LandingChipsOverlay | null = null;
   private unsubscribeStore: (() => void) | null = null;
 
   constructor(source: StateSource, settings: RUESettings = DEFAULT_SETTINGS) {
@@ -37,6 +43,9 @@ export class OverlayManager {
     this.infoMenu = new InfoMenuOverlay(this.settings);
     this.infoMenu.mount(this.rootEl);
 
+    this.landingChips = new LandingChipsOverlay(this.source, this.settings);
+    this.landingChips.mount(this.rootEl);
+
     const initialState = this.source.getState();
     if (initialState) this.infoMenu.update(initialState);
 
@@ -50,6 +59,8 @@ export class OverlayManager {
     this.unsubscribeStore = null;
     this.infoMenu?.destroy();
     this.infoMenu = null;
+    this.landingChips?.destroy();
+    this.landingChips = null;
     this.host?.remove();
     this.host = null;
     this.rootEl = null;
@@ -58,6 +69,7 @@ export class OverlayManager {
   setSettings(settings: RUESettings): void {
     this.settings = settings;
     this.infoMenu?.applySettings(settings);
+    this.landingChips?.applySettings(settings);
   }
 
   private mountShadow(): void {
