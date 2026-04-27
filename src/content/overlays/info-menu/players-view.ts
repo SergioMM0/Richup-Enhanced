@@ -159,6 +159,11 @@ export class PlayersView implements InfoMenuView {
     section.appendChild(this.sectionTitle('Money'));
     section.appendChild(this.row('Cash', formatMoney(breakdown.cash)));
     section.appendChild(this.row('Properties', formatMoney(breakdown.propertyValue)));
+    if (breakdown.lockedInSets > 0) {
+      section.appendChild(
+        this.row('Locked in sets', formatMoney(breakdown.lockedInSets)),
+      );
+    }
     const divider = document.createElement('hr');
     divider.className = 'info-menu__divider';
     section.appendChild(divider);
