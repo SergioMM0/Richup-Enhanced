@@ -7,7 +7,9 @@ import { calcParticipantNetWorth, formatMoney } from '../../analytics/player';
 import type { InfoMenuView, ViewContext } from './types';
 
 interface ChipEntry {
+  wrap: HTMLDivElement;
   el: HTMLButtonElement;
+  pinEl: HTMLButtonElement;
   participant: Participant;
 }
 
@@ -18,6 +20,7 @@ export class PlayersView implements InfoMenuView {
   private chipsEl: HTMLDivElement;
   private chips = new Map<string, ChipEntry>();
   private activePlayerId: string | null = null;
+  private pinnedPlayerId: string | null = null;
   private context: ViewContext | null = null;
 
   constructor() {
@@ -77,32 +80,73 @@ export class PlayersView implements InfoMenuView {
       seen.add(p.id);
       let entry = this.chips.get(p.id);
       if (!entry) {
+        const wrap = document.createElement('div');
+        wrap.className = 'info-menu__chip-wrap';
+        // The hover handler in LandingChipsOverlay matches via
+        // closest('[data-participant-id]'), so the wrapper carries the id —
+        // hovering either the main chip or the pin button still triggers it.
+        wrap.dataset.participantId = p.id;
+
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'info-menu__chip';
         el.setAttribute('role', 'tab');
-        el.dataset.participantId = p.id;
         el.addEventListener('click', () => {
           this.activePlayerId = p.id;
           this.context?.requestUpdate();
         });
-        this.chipsEl.appendChild(el);
-        entry = { el, participant: p };
+
+        const pinEl = document.createElement('button');
+        pinEl.type = 'button';
+        pinEl.className = 'info-menu__chip-pin';
+        pinEl.setAttribute('aria-label', 'Pin landing chips');
+        pinEl.title = 'Pin landing chips on the board';
+        pinEl.textContent = '\u{1F4CC}';
+        pinEl.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.togglePin(p.id);
+        });
+
+        wrap.appendChild(el);
+        wrap.appendChild(pinEl);
+        this.chipsEl.appendChild(wrap);
+        entry = { wrap, el, pinEl, participant: p };
         this.chips.set(p.id, entry);
       }
       entry.participant = p;
+      entry.wrap.style.setProperty('--tab-color', p.appearance);
       entry.el.style.setProperty('--tab-color', p.appearance);
       entry.el.textContent = p.name;
       entry.el.title = p.name;
       const isActive = p.id === this.activePlayerId;
       entry.el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      const isPinned = p.id === this.pinnedPlayerId;
+      entry.pinEl.setAttribute('aria-pressed', isPinned ? 'true' : 'false');
     }
     for (const id of [...this.chips.keys()]) {
       if (!seen.has(id)) {
-        this.chips.get(id)?.el.remove();
+        // If the pinned player is being removed (e.g. bankrupt), clear the pin
+        // and notify LandingChipsOverlay so it stops rendering for a ghost id.
+        if (this.pinnedPlayerId === id) {
+          this.pinnedPlayerId = null;
+          this.dispatchPin(null);
+        }
+        this.chips.get(id)?.wrap.remove();
         this.chips.delete(id);
       }
     }
+  }
+
+  private togglePin(id: string): void {
+    this.pinnedPlayerId = this.pinnedPlayerId === id ? null : id;
+    this.dispatchPin(this.pinnedPlayerId);
+    this.context?.requestUpdate();
+  }
+
+  private dispatchPin(id: string | null): void {
+    document.dispatchEvent(
+      new CustomEvent('rue:pin-participant', { detail: { id } }),
+    );
   }
 
   private renderMoneySection(

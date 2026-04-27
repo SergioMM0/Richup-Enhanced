@@ -155,7 +155,8 @@ export class LandingChipsOverlay {
   private hoverRoot: HTMLElement | null = null;
   private chips: Chip[] = [];
   private hoveredParticipantId: string | null = null;
-  private lastRenderedPosition: number | null = null;
+  private pinnedParticipantId: string | null = null;
+  private lastRenderedKey: string | null = null;
   private unsubscribe: (() => void) | null = null;
   private boundOver = (e: MouseEvent) => this.handleOver(e);
   private boundOut = (e: MouseEvent) => this.handleOut(e);
@@ -163,6 +164,7 @@ export class LandingChipsOverlay {
     const id = (e as CustomEvent<{ id?: string }>).detail?.id;
     if (id) this.debugTrigger(id);
   };
+  private boundPin = (e: Event) => this.handlePin(e);
 
   constructor(source: StateSource, settings: RUESettings) {
     this.source = source;
@@ -206,6 +208,14 @@ export class LandingChipsOverlay {
     // why a window-level trigger doesn't survive the world boundary.
     document.addEventListener('rue:trigger', this.boundTrigger as EventListener);
 
+    // PlayersView (info-menu) dispatches this when the user clicks a pin
+    // button on a player chip. detail.id = participant id to pin, or null
+    // to unpin. A document-level event keeps the two overlays decoupled.
+    document.addEventListener(
+      'rue:pin-participant',
+      this.boundPin as EventListener,
+    );
+
     console.log('[RUE landing-chips] mounted, listeners attached', {
       buildId: LANDING_CHIPS_BUILD,
     });
@@ -220,6 +230,10 @@ export class LandingChipsOverlay {
     this.hoverRoot?.removeEventListener('mouseover', this.boundOver, true);
     this.hoverRoot?.removeEventListener('mouseout', this.boundOut, true);
     document.removeEventListener('rue:trigger', this.boundTrigger as EventListener);
+    document.removeEventListener(
+      'rue:pin-participant',
+      this.boundPin as EventListener,
+    );
     this.hoverRoot = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -234,7 +248,12 @@ export class LandingChipsOverlay {
     const enabled = settings.overlaysEnabled && settings.showLandingChips;
     this.container.style.display = enabled ? '' : 'none';
     this.container.style.opacity = String(settings.overlayOpacity);
-    if (!enabled) this.clear();
+    if (!enabled) {
+      // Drop the pin too — re-enabling should start clean rather than
+      // surface a stale pin the user can't see the trigger for.
+      this.pinnedParticipantId = null;
+      this.clear();
+    }
   }
 
   private isEnabled(): boolean {
@@ -258,7 +277,7 @@ export class LandingChipsOverlay {
     if (!id) return;
     if (this.hoveredParticipantId === id) return;
     this.hoveredParticipantId = id;
-    this.lastRenderedPosition = null;
+    this.lastRenderedKey = null;
     this.render();
   }
 
@@ -266,7 +285,17 @@ export class LandingChipsOverlay {
   // without relying on real or synthetic mouse events.
   debugTrigger(id: string): void {
     this.hoveredParticipantId = id;
-    this.lastRenderedPosition = null;
+    this.lastRenderedKey = null;
+    this.render();
+  }
+
+  private handlePin(e: Event): void {
+    const detail = (e as CustomEvent<{ id?: string | null }>).detail;
+    const next = detail?.id ?? null;
+    if (this.pinnedParticipantId === next) return;
+    this.pinnedParticipantId = next;
+    this.lastRenderedKey = null;
+    debug('pin set', { id: next });
     this.render();
   }
 
@@ -282,12 +311,13 @@ export class LandingChipsOverlay {
     if (related?.closest?.('[data-participant-id]')) return;
     if (this.hoveredParticipantId === null) return;
     this.hoveredParticipantId = null;
-    this.lastRenderedPosition = null;
-    this.clear();
+    this.lastRenderedKey = null;
+    // render() falls back to the pinned id if one is set; otherwise it clears.
+    this.render();
   }
 
   private repositionIfActive(): void {
-    if (!this.hoveredParticipantId) return;
+    if (!this.hoveredParticipantId && !this.pinnedParticipantId) return;
     this.render();
   }
 
@@ -300,7 +330,12 @@ export class LandingChipsOverlay {
       debug('render: disabled');
       return;
     }
-    if (!this.hoveredParticipantId) return;
+    // Hover takes precedence; on mouseout we fall back to the pinned id.
+    const activeId = this.hoveredParticipantId ?? this.pinnedParticipantId;
+    if (!activeId) {
+      this.clear();
+      return;
+    }
 
     const root = this.source.getState();
     if (!root) {
@@ -316,16 +351,20 @@ export class LandingChipsOverlay {
     }
 
     const participant: Participant | undefined = root.state.participants.find(
-      (p) => p.id === this.hoveredParticipantId,
+      (p) => p.id === activeId,
     );
     if (!participant || participant.bankruptedAt !== null) {
-      debug('render: participant missing or bankrupt', this.hoveredParticipantId);
+      debug('render: participant missing or bankrupt', activeId);
+      // If a pin pointed at a now-gone player, drop it so we don't keep
+      // skipping renders for a ghost id.
+      if (this.pinnedParticipantId === activeId) this.pinnedParticipantId = null;
       this.clear();
       return;
     }
 
-    if (this.lastRenderedPosition === participant.position) return;
-    this.lastRenderedPosition = participant.position;
+    const key = `${participant.id}:${participant.position}`;
+    if (this.lastRenderedKey === key) return;
+    this.lastRenderedKey = key;
     debug('render', { id: participant.id, pos: participant.position, phase });
 
     const color = participant.appearance || '#ffffff';
@@ -364,5 +403,8 @@ export class LandingChipsOverlay {
     for (const { el } of this.chips) {
       if (el.parentNode) el.remove();
     }
+    // Invalidate so a subsequent render for the same id+position re-attaches
+    // the chip DOM rather than short-circuiting via lastRenderedKey.
+    this.lastRenderedKey = null;
   }
 }
