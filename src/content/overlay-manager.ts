@@ -4,7 +4,6 @@ import type { StateSource } from './store-relay';
 import { calcParticipantNetWorth, formatMoney } from './analytics/player';
 
 const CONTAINER_ID = 'rue-overlay-root';
-const TILE_COUNT = 40;
 const BOARD_SELECTOR = '[data-testid="board"]';
 const HUD_GAP = 4;
 
@@ -16,30 +15,6 @@ const SHADOW_CSS = `
     pointer-events: none;
     z-index: 2147483000;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .tile {
-    position: fixed;
-    pointer-events: none;
-    box-sizing: border-box;
-    border: 1px dashed rgba(34, 139, 87, 0.6);
-    border-radius: 4px;
-    background: rgba(34, 139, 87, 0.08);
-    color: #0a0a0a;
-    font-size: 10px;
-    line-height: 1;
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-end;
-    padding: 2px 3px;
-    transition: opacity 120ms linear;
-  }
-  .tile .badge {
-    background: rgba(34, 139, 87, 0.85);
-    color: #fff;
-    border-radius: 3px;
-    padding: 1px 3px;
-    font-weight: 600;
-    font-size: 9px;
   }
   .player-hud {
     position: fixed;
@@ -60,11 +35,6 @@ const SHADOW_CSS = `
   .player-hud .total { font-weight: 700; }
 `;
 
-interface TileOverlay {
-  el: HTMLDivElement;
-  badge: HTMLSpanElement;
-}
-
 interface PlayerHudOverlay {
   el: HTMLDivElement;
   totalSpan: HTMLSpanElement;
@@ -76,7 +46,6 @@ export class OverlayManager {
   private host: HTMLDivElement | null = null;
   private shadowRoot: ShadowRoot | null = null;
   private rootEl: HTMLDivElement | null = null;
-  private overlays = new Map<number, TileOverlay>();
   private playerOverlays = new Map<string, PlayerHudOverlay>();
   private unsubscribeStore: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -91,14 +60,12 @@ export class OverlayManager {
 
   init(): void {
     this.mountShadow();
-    this.renderAllTiles();
     const initialState = this.source.getState();
     if (initialState) this.renderAllPlayerHuds(initialState);
     this.scheduleReposition();
     this.attachObservers();
 
     this.unsubscribeStore = this.source.subscribe((state) => {
-      this.renderAllTiles();
       this.renderAllPlayerHuds(state);
       this.scheduleReposition();
     });
@@ -148,7 +115,6 @@ export class OverlayManager {
     this.host = null;
     this.shadowRoot = null;
     this.rootEl = null;
-    this.overlays.clear();
     this.playerOverlays.clear();
   }
 
@@ -181,32 +147,6 @@ export class OverlayManager {
     this.host = host;
     this.shadowRoot = shadow;
     this.rootEl = root;
-  }
-
-  private renderAllTiles(): void {
-    if (!this.rootEl) return;
-    for (let i = 0; i < TILE_COUNT; i++) {
-      this.renderTile(i);
-    }
-    this.applyVisibility();
-  }
-
-  private renderTile(index: number): void {
-    if (!this.rootEl) return;
-    let overlay = this.overlays.get(index);
-    if (!overlay) {
-      const el = document.createElement('div');
-      el.className = 'tile';
-      el.dataset.tileIndex = String(index);
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = String(index);
-      el.appendChild(badge);
-      this.rootEl.appendChild(el);
-      overlay = { el, badge };
-      this.overlays.set(index, overlay);
-    }
-    overlay.badge.textContent = String(index);
   }
 
   private renderAllPlayerHuds(state: RootStoreState): void {
@@ -260,10 +200,6 @@ export class OverlayManager {
   private applyVisibility(): void {
     const baseVisible = this.settings.overlaysEnabled;
     const opacity = String(this.settings.overlayOpacity);
-    for (const { el } of this.overlays.values()) {
-      el.style.display = baseVisible ? '' : 'none';
-      el.style.opacity = opacity;
-    }
     const hudVisible = baseVisible && this.settings.showPlayerHUD;
     for (const { el } of this.playerOverlays.values()) {
       el.style.display = hudVisible ? '' : 'none';
@@ -284,7 +220,7 @@ export class OverlayManager {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['data-board-block-index', 'style', 'class'],
+      attributeFilter: ['style', 'class'],
     });
     window.addEventListener('scroll', this.onScrollOrResize, true);
     window.addEventListener('resize', this.onScrollOrResize);
@@ -299,27 +235,6 @@ export class OverlayManager {
   }
 
   private repositionAll(): void {
-    for (let i = 0; i < TILE_COUNT; i++) {
-      const overlay = this.overlays.get(i);
-      if (!overlay) continue;
-      const el = document.querySelector<HTMLElement>(
-        `[data-board-block-index="${i}"]`,
-      );
-      if (!el) {
-        overlay.el.style.display = 'none';
-        continue;
-      }
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        overlay.el.style.display = 'none';
-        continue;
-      }
-      overlay.el.style.display = this.settings.overlaysEnabled ? '' : 'none';
-      overlay.el.style.left = `${rect.left}px`;
-      overlay.el.style.top = `${rect.top}px`;
-      overlay.el.style.width = `${rect.width}px`;
-      overlay.el.style.height = `${rect.height}px`;
-    }
     this.repositionPlayerHuds();
   }
 
