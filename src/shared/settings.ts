@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: RUESettings = {
   showOwnerHighlight: true,
   showInfoMenu: true,
   showLandingChips: true,
+  showLandingChipsForCurrentTurn: false,
   overlayOpacity: 0.85,
 };
 

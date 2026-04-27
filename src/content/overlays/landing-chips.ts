@@ -195,6 +195,7 @@ export class LandingChipsOverlay {
   private hoveredParticipantId: string | null = null;
   private pinnedParticipantId: string | null = null;
   private lastRenderedKey: string | null = null;
+  private prevAutoFollow = false;
   private unsubscribe: (() => void) | null = null;
   private boundOver = (e: MouseEvent) => this.handleOver(e);
   private boundOut = (e: MouseEvent) => this.handleOut(e);
@@ -295,6 +296,12 @@ export class LandingChipsOverlay {
       this.pinnedParticipantId = null;
       this.clear();
     }
+    const autoFollow = settings.showLandingChipsForCurrentTurn;
+    if (enabled && autoFollow !== this.prevAutoFollow) {
+      this.lastRenderedKey = null;
+      this.render();
+    }
+    this.prevAutoFollow = autoFollow;
   }
 
   private isEnabled(): boolean {
@@ -358,7 +365,13 @@ export class LandingChipsOverlay {
   }
 
   private repositionIfActive(): void {
-    if (!this.hoveredParticipantId && !this.pinnedParticipantId) return;
+    const autoFollow = this.settings.showLandingChipsForCurrentTurn;
+    if (
+      !this.hoveredParticipantId &&
+      !this.pinnedParticipantId &&
+      !autoFollow
+    )
+      return;
     this.render();
   }
 
@@ -371,12 +384,6 @@ export class LandingChipsOverlay {
       debug('render: disabled');
       return;
     }
-    // Hover takes precedence; on mouseout we fall back to the pinned id.
-    const activeId = this.hoveredParticipantId ?? this.pinnedParticipantId;
-    if (!activeId) {
-      this.clear();
-      return;
-    }
 
     const root = this.source.getState();
     if (!root) {
@@ -384,6 +391,28 @@ export class LandingChipsOverlay {
       this.clear();
       return;
     }
+
+    let currentTurnId: string | null = null;
+    if (this.settings.showLandingChipsForCurrentTurn) {
+      const s = root.state;
+      // Active turn only exists in 'playing' phase, with no auction in
+      // progress, pointing at a non-bankrupt participant.
+      if (s.phase === 'playing' && !s.auction) {
+        const candidate = s.participants[s.currentPlayerIndex];
+        if (candidate && candidate.bankruptedAt === null) {
+          currentTurnId = candidate.id;
+        }
+      }
+    }
+
+    // Hover > current turn > pin.
+    const activeId =
+      this.hoveredParticipantId ?? currentTurnId ?? this.pinnedParticipantId;
+    if (!activeId) {
+      this.clear();
+      return;
+    }
+
     const phase = root.state.phase;
     if (phase === 'ended') {
       debug('render: game ended', phase);

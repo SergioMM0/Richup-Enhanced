@@ -186,5 +186,6 @@ export interface RUESettings {
   showOwnerHighlight: boolean;
   showInfoMenu: boolean;
   showLandingChips: boolean;
+  showLandingChipsForCurrentTurn: boolean;
   overlayOpacity: number;
 }
