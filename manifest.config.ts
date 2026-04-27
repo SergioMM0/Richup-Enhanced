@@ -10,13 +10,16 @@ export default defineManifest({
   host_permissions: ['https://richup.io/*'],
   content_scripts: [
     {
-      matches: ['https://richup.io/room/*'],
+      // Match all richup.io pages so the scripts are present when the user
+      // SPA-navigates from the lobby into /room/*. Per-script gating on the
+      // /room/* path is enforced inside the scripts themselves.
+      matches: ['https://richup.io/*'],
       js: ['src/content/main-world.ts'],
       run_at: 'document_idle',
       world: 'MAIN',
     },
     {
-      matches: ['https://richup.io/room/*'],
+      matches: ['https://richup.io/*'],
       js: ['src/content/index.ts'],
       run_at: 'document_idle',
     },

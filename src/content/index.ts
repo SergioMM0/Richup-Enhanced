@@ -69,18 +69,13 @@ function watchUrlChanges(): void {
       void start();
     }
   };
-  const wrap = (key: 'pushState' | 'replaceState') => {
-    const original = history[key].bind(history);
-    history[key] = ((...args: Parameters<History[typeof key]>) => {
-      const result = original(...(args as [unknown, string, string?]));
-      window.dispatchEvent(new Event('rue:locationchange'));
-      return result;
-    }) as History[typeof key];
-  };
-  wrap('pushState');
-  wrap('replaceState');
+  // Monkey-patching history.pushState from the isolated content-script world
+  // does not intercept calls made by the page's MAIN-world router (each world
+  // has its own bindings for built-ins). Poll instead — a string compare per
+  // tick is negligible, and it's the only reliable way to detect SPA route
+  // changes from the iso world.
+  setInterval(checkUrl, 200);
   window.addEventListener('popstate', checkUrl);
-  window.addEventListener('rue:locationchange', checkUrl);
 }
 
 watchUrlChanges();

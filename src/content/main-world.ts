@@ -13,6 +13,7 @@ import {
 const TAG = '[RUE/main]';
 const FIBER_PREFIX = '__reactFiber';
 const FIBER_WALK_NODE_LIMIT = 20_000;
+const ROOM_PATH_RE = /^\/room\/[^/]+/;
 
 const ROOT_SELECTOR_CANDIDATES = [
   '#app',
@@ -214,11 +215,11 @@ function walkAndFind(): WalkResult {
 
 let lastDiagnostic: DiagnosticReport | null = null;
 
-async function waitForStore(
-  timeoutMs = 30_000,
-  intervalMs = 250,
-): Promise<WalkResult> {
-  const deadline = Date.now() + timeoutMs;
+async function waitForStore(intervalMs = 250): Promise<WalkResult> {
+  // Polls indefinitely. The script now matches all richup.io URLs so it can be
+  // present before the user SPA-navigates into /room/*; we skip the fiber walk
+  // entirely on non-room paths to keep the lobby tab idle, and resume on the
+  // next tick once the URL becomes a room.
   let last: WalkResult = {
     store: null,
     diagnostic: {
@@ -233,20 +234,20 @@ async function waitForStore(
   };
   let attempt = 0;
   let lastLoggedAt = 0;
-  while (Date.now() < deadline) {
-    last = walkAndFind();
-    lastDiagnostic = last.diagnostic;
-    attempt++;
-    // Log first attempt always, then every 3 seconds, so we have visibility.
-    const now = Date.now();
-    if (attempt === 1 || now - lastLoggedAt > 3000) {
-      console.log(`${TAG} walk attempt ${attempt}`, last.diagnostic);
-      lastLoggedAt = now;
+  while (true) {
+    if (ROOM_PATH_RE.test(location.pathname)) {
+      last = walkAndFind();
+      lastDiagnostic = last.diagnostic;
+      attempt++;
+      const now = Date.now();
+      if (attempt === 1 || now - lastLoggedAt > 3000) {
+        console.log(`${TAG} walk attempt ${attempt}`, last.diagnostic);
+        lastLoggedAt = now;
+      }
+      if (last.store) return last;
     }
-    if (last.store) return last;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return last;
 }
 
 function exposeMainWorldDebug(getStoreState: () => unknown) {
@@ -306,30 +307,26 @@ async function bootstrap(): Promise<void> {
   exposeMainWorldDebug(() => null);
 
   const result = await waitForStore();
+  const store = result.store!;
 
   postToIso({
     source: MSG_SOURCE_MAIN,
     type: 'hello',
-    payload: { storeFound: !!result.store, diagnostic: result.diagnostic },
+    payload: { storeFound: true, diagnostic: result.diagnostic },
   });
-
-  if (!result.store) {
-    console.warn(`${TAG} store not found after timeout`, result.diagnostic);
-    return;
-  }
   console.log(`${TAG} store found`, result.diagnostic);
-  exposeMainWorldDebug(() => result.store!.getState());
+  exposeMainWorldDebug(() => store.getState());
 
   // Push initial state immediately, then on every change.
-  scheduleStatePush(result.store.getState());
-  const unsubscribe = result.store.subscribe((s) => scheduleStatePush(s));
+  scheduleStatePush(store.getState());
+  const unsubscribe = store.subscribe((s) => scheduleStatePush(s));
 
   // Respond to ad-hoc requests from isolated world.
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     if (!isIsoToMain(e.data)) return;
-    if (e.data.type === 'request-state' && result.store) {
-      scheduleStatePush(result.store.getState());
+    if (e.data.type === 'request-state') {
+      scheduleStatePush(store.getState());
     }
     if (e.data.type === 'request-diagnostic') {
       postToIso({
