@@ -1,11 +1,13 @@
 export const INFO_MENU_CSS = `
   .info-menu {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
-    width: 300px;
-    max-height: 60vh;
+    /* left/top/width/height applied inline by the shell so they can be
+       persisted and restored across sessions. */
     box-sizing: border-box;
+    min-width: 240px;
+    min-height: 160px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
     background: rgba(20, 20, 28, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
@@ -18,8 +20,14 @@ export const INFO_MENU_CSS = `
     pointer-events: auto;
     display: flex;
     flex-direction: column;
+    overflow: hidden; /* required for resize: both */
+    resize: both;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
     transition: opacity 120ms linear;
+  }
+  .info-menu--dragging {
+    user-select: none;
+    cursor: grabbing;
   }
   .info-menu__header {
     flex-shrink: 0;
@@ -28,6 +36,32 @@ export const INFO_MENU_CSS = `
     gap: 6px;
     padding: 6px 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: grab;
+  }
+  .info-menu--dragging .info-menu__header {
+    cursor: grabbing;
+  }
+  .info-menu__drag-handle {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 18px;
+    color: #f5f5f7;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.45;
+    cursor: grab;
+    user-select: none;
+    transition: opacity 100ms linear;
+  }
+  .info-menu__drag-handle:hover {
+    opacity: 0.85;
+  }
+  .info-menu--dragging .info-menu__drag-handle {
+    cursor: grabbing;
+    opacity: 1;
   }
   .info-menu__view-tabs {
     flex: 1;
@@ -166,6 +200,11 @@ export const INFO_MENU_CSS = `
   }
   .info-menu--collapsed .info-menu__collapse {
     transform: rotate(180deg);
+  }
+  .info-menu--collapsed {
+    /* Drop the resize affordance while collapsed — height auto-shrinks to
+       the header and the saved height is restored on expand. */
+    resize: none;
   }
   .info-menu--collapsed .info-menu__sub-header,
   .info-menu--collapsed .info-menu__body {
