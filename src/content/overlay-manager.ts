@@ -1,10 +1,12 @@
-import type { RUESettings } from '@shared/types';
+import type { Participant, RootStoreState, RUESettings } from '@shared/types';
 import { DEFAULT_SETTINGS } from '@shared/settings';
 import type { StateSource } from './store-relay';
+import { calcParticipantNetWorth, formatMoney } from './analytics/player';
 
 const CONTAINER_ID = 'rue-overlay-root';
 const TILE_COUNT = 40;
 const BOARD_SELECTOR = '[data-testid="board"]';
+const HUD_GAP = 4;
 
 const SHADOW_CSS = `
   :host { all: initial; }
@@ -39,11 +41,33 @@ const SHADOW_CSS = `
     font-weight: 600;
     font-size: 9px;
   }
+  .player-hud {
+    position: fixed;
+    pointer-events: none;
+    box-sizing: border-box;
+    color: var(--rue-accent, #fff);
+    font-size: 14px;
+    line-height: 1;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    transition: opacity 120ms linear;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+  }
+  .player-hud .sep { opacity: 0.6; margin: 0 4px; font-weight: 400; }
+  .player-hud .total { font-weight: 700; }
 `;
 
 interface TileOverlay {
   el: HTMLDivElement;
   badge: HTMLSpanElement;
+}
+
+interface PlayerHudOverlay {
+  el: HTMLDivElement;
+  totalSpan: HTMLSpanElement;
 }
 
 export class OverlayManager {
@@ -53,6 +77,7 @@ export class OverlayManager {
   private shadowRoot: ShadowRoot | null = null;
   private rootEl: HTMLDivElement | null = null;
   private overlays = new Map<number, TileOverlay>();
+  private playerOverlays = new Map<string, PlayerHudOverlay>();
   private unsubscribeStore: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private mutationObserver: MutationObserver | null = null;
@@ -67,12 +92,45 @@ export class OverlayManager {
   init(): void {
     this.mountShadow();
     this.renderAllTiles();
+    const initialState = this.source.getState();
+    if (initialState) this.renderAllPlayerHuds(initialState);
     this.scheduleReposition();
     this.attachObservers();
 
-    this.unsubscribeStore = this.source.subscribe(() => {
+    this.unsubscribeStore = this.source.subscribe((state) => {
       this.renderAllTiles();
+      this.renderAllPlayerHuds(state);
+      this.scheduleReposition();
     });
+
+    queueMicrotask(() => this.logHudDiagnostic());
+  }
+
+  private logHudDiagnostic(): void {
+    const state = this.source.getState();
+    if (!state) return;
+    const participants = state.state?.participants ?? [];
+    const cards = document.querySelectorAll<HTMLElement>('[data-participant-id]');
+    const report = participants.map((p) => {
+      const card = document.querySelector<HTMLElement>(
+        `[data-participant-id="${CSS.escape(p.id)}"]`,
+      );
+      const cashEl = card ? this.findCashElement(card) : null;
+      return {
+        id: p.id,
+        name: p.name,
+        money: p.money,
+        cardFound: !!card,
+        cardSize: card ? card.getBoundingClientRect() : null,
+        cashFound: !!cashEl,
+        cashText: cashEl?.textContent?.trim() ?? null,
+        cashRect: cashEl ? cashEl.getBoundingClientRect() : null,
+      };
+    });
+    console.log(
+      `[RUE] HUD diagnostic: ${cards.length} cards in DOM, ${participants.length} participants in store`,
+      report,
+    );
   }
 
   destroy(): void {
@@ -91,6 +149,7 @@ export class OverlayManager {
     this.shadowRoot = null;
     this.rootEl = null;
     this.overlays.clear();
+    this.playerOverlays.clear();
   }
 
   setSettings(settings: RUESettings): void {
@@ -150,11 +209,64 @@ export class OverlayManager {
     overlay.badge.textContent = String(index);
   }
 
+  private renderAllPlayerHuds(state: RootStoreState): void {
+    if (!this.rootEl) return;
+    const participants = state.state?.participants ?? [];
+    const blocks = state.state?.blocks ?? [];
+    const seen = new Set<string>();
+
+    for (const p of participants) {
+      if (p.bankruptedAt !== null) continue;
+      seen.add(p.id);
+      this.renderPlayerHud(p, blocks);
+    }
+
+    for (const id of [...this.playerOverlays.keys()]) {
+      if (!seen.has(id)) {
+        const overlay = this.playerOverlays.get(id);
+        overlay?.el.remove();
+        this.playerOverlays.delete(id);
+      }
+    }
+  }
+
+  private renderPlayerHud(participant: Participant, blocks: RootStoreState['state']['blocks']): void {
+    if (!this.rootEl) return;
+    let overlay = this.playerOverlays.get(participant.id);
+    if (!overlay) {
+      const el = document.createElement('div');
+      el.className = 'player-hud';
+      el.dataset.participantId = participant.id;
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '/';
+      const totalSpan = document.createElement('span');
+      totalSpan.className = 'total';
+      el.appendChild(sep);
+      el.appendChild(totalSpan);
+      this.rootEl.appendChild(el);
+      overlay = { el, totalSpan };
+      this.playerOverlays.set(participant.id, overlay);
+    }
+    overlay.el.style.setProperty('--rue-accent', participant.appearance);
+    const breakdown = calcParticipantNetWorth(participant, blocks);
+    overlay.totalSpan.textContent = formatMoney(breakdown.total);
+  }
+
+  private findCashElement(card: HTMLElement): HTMLElement | null {
+    return card.querySelector<HTMLElement>('[data-testid="player-money"]');
+  }
+
   private applyVisibility(): void {
-    const visible = this.settings.overlaysEnabled;
+    const baseVisible = this.settings.overlaysEnabled;
     const opacity = String(this.settings.overlayOpacity);
     for (const { el } of this.overlays.values()) {
-      el.style.display = visible ? '' : 'none';
+      el.style.display = baseVisible ? '' : 'none';
+      el.style.opacity = opacity;
+    }
+    const hudVisible = baseVisible && this.settings.showPlayerHUD;
+    for (const { el } of this.playerOverlays.values()) {
+      el.style.display = hudVisible ? '' : 'none';
       el.style.opacity = opacity;
     }
   }
@@ -207,6 +319,36 @@ export class OverlayManager {
       overlay.el.style.top = `${rect.top}px`;
       overlay.el.style.width = `${rect.width}px`;
       overlay.el.style.height = `${rect.height}px`;
+    }
+    this.repositionPlayerHuds();
+  }
+
+  private repositionPlayerHuds(): void {
+    const hudVisible =
+      this.settings.overlaysEnabled && this.settings.showPlayerHUD;
+    for (const [id, overlay] of this.playerOverlays) {
+      const card = document.querySelector<HTMLElement>(
+        `[data-participant-id="${CSS.escape(id)}"]`,
+      );
+      if (!card) {
+        overlay.el.style.display = 'none';
+        continue;
+      }
+      const cashEl = this.findCashElement(card);
+      if (!cashEl) {
+        overlay.el.style.display = 'none';
+        continue;
+      }
+      const rect = cashEl.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        overlay.el.style.display = 'none';
+        continue;
+      }
+      overlay.el.style.display = hudVisible ? '' : 'none';
+      overlay.el.style.left = `${rect.right + HUD_GAP}px`;
+      overlay.el.style.top = `${rect.top}px`;
+      overlay.el.style.height = `${rect.height}px`;
+      overlay.el.style.fontSize = `${Math.max(10, Math.round(rect.height * 0.65))}px`;
     }
   }
 }

@@ -140,6 +140,10 @@ function walkAndFind(): WalkResult {
     const c = inspectCandidate(val);
     if (!c) return;
     diagnostic.candidatesFound++;
+    // Require selfParticipantId — the distinctive richup game-store key. Without
+    // this gate, generic Zustand stores on the page (ad loaders, intersection
+    // trackers) score 0 but still beat the initial bestScore of -1.
+    if (!c.hasSelfParticipantId) return;
     const s = score(c);
     if (s > bestScore) {
       bestStore = c.store;
