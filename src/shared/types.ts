@@ -135,7 +135,7 @@ export interface BonusCard {
 
 export interface GameState {
   id: string;
-  phase: 'lobby' | 'game' | 'ended';
+  phase: 'lobby' | 'playing' | 'ended';
   participants: Participant[];
   currentPlayerIndex: number;
   mapId: string;
