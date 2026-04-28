@@ -11,12 +11,12 @@ import type { StateSource } from '../store-relay';
 const BOARD_SIZE = 40;
 
 type TileSide = 'top' | 'right' | 'bottom' | 'left' | 'corner';
-// Fixed chip footprint. The chip is meant to *replace* the host page's price
-// label, so we anchor it flush against the tile's outer edge with a 1px inset
-// rather than the older ratio-based position (which left the chip overhanging
-// the tile when it grew taller).
-const CHIP_WIDTH = 64;
-const CHIP_HEIGHT = 30;
+// Chip footprint. The chip is meant to *replace* the host page's price label,
+// so we anchor it flush against the tile's outer edge with a 1px inset. Only
+// the perpendicular (short-axis) dimension matters here in TS — the chip's
+// box dimensions live in CSS, since top/bottom render 64x30 and left/right
+// flip to 30x64 (vertical) so the chip stands upright along the board side.
+const CHIP_SHORT = 30;
 const CHIP_INSET = 1;
 
 function tileSide(index: number): TileSide {
@@ -35,7 +35,7 @@ interface Prediction {
   uncertain: boolean;  // landed on a bonus tile; card may teleport
 }
 
-const LANDING_CHIPS_BUILD = 'v4-2026-04-27';
+const LANDING_CHIPS_BUILD = 'v6-2026-04-28-rotate-whole-chip';
 console.log('[RUE landing-chips] module loaded', LANDING_CHIPS_BUILD);
 
 // Gated behind sessionStorage rather than `window.__rueDebug` because content
@@ -78,10 +78,10 @@ function chipAnchor(
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
   switch (tileSide(tileIndex)) {
-    case 'top':    return { x: cx, y: r.top + CHIP_INSET + CHIP_HEIGHT / 2 };
-    case 'bottom': return { x: cx, y: r.bottom - CHIP_INSET - CHIP_HEIGHT / 2 };
-    case 'left':   return { x: r.left + CHIP_INSET + CHIP_WIDTH / 2, y: cy };
-    case 'right':  return { x: r.right - CHIP_INSET - CHIP_WIDTH / 2, y: cy };
+    case 'top':    return { x: cx, y: r.top + CHIP_INSET + CHIP_SHORT / 2 };
+    case 'bottom': return { x: cx, y: r.bottom - CHIP_INSET - CHIP_SHORT / 2 };
+    case 'left':   return { x: r.left + CHIP_INSET + CHIP_SHORT / 2, y: cy };
+    case 'right':  return { x: r.right - CHIP_INSET - CHIP_SHORT / 2, y: cy };
     case 'corner': return { x: cx, y: cy };
   }
 }
@@ -114,6 +114,18 @@ export const LANDING_CHIPS_CSS = `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
     overflow: hidden;
   }
+  /* Side tiles rotate the entire chip box around its anchor center. The DOM
+     box stays 64x30; the rendered region becomes a 30x64 vertical strip.
+     The translate(-50%, -50%) keeps the chip centered on (cx, cy); the
+     subsequent rotate() spins around that same center because it's the
+     default transform-origin. Inner layout (sum/price/rent grid) carries
+     through the rotation unchanged, preserving the design hierarchy. */
+  .rue-landing-chip--side-left {
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+  .rue-landing-chip--side-right {
+    transform: translate(-50%, -50%) rotate(-90deg);
+  }
   /* Player-color accent on the tile's outer edge — tells you whose chip it is
      without the heavy full border the previous design used. */
   .rue-landing-chip::before {
@@ -125,14 +137,14 @@ export const LANDING_CHIPS_CSS = `
   .rue-landing-chip--side-top::before {
     top: 0; left: 0; right: 0; height: 2px;
   }
-  .rue-landing-chip--side-bottom::before {
-    bottom: 0; left: 0; right: 0; height: 2px;
-  }
-  .rue-landing-chip--side-left::before {
-    top: 0; bottom: 0; left: 0; width: 2px;
-  }
+  /* Bottom, left, and right all stripe the chip's pre-rotation BOTTOM edge.
+     For bottom tiles that's already the outer board edge; for left/right
+     tiles the rotation maps that same edge onto the screen's outer board
+     perimeter (CW for left → screen-left; CCW for right → screen-right). */
+  .rue-landing-chip--side-bottom::before,
+  .rue-landing-chip--side-left::before,
   .rue-landing-chip--side-right::before {
-    top: 0; bottom: 0; right: 0; width: 2px;
+    bottom: 0; left: 0; right: 0; height: 2px;
   }
   /* Corners have no clear "outer edge" to stripe — fall back to a thin frame. */
   .rue-landing-chip--side-corner {
