@@ -6,6 +6,7 @@ export const MSG_SOURCE_ISO = 'rue-iso';
 export type MainToIsoMessage =
   | { source: typeof MSG_SOURCE_MAIN; type: 'hello'; payload: { storeFound: boolean; diagnostic: DiagnosticReport } }
   | { source: typeof MSG_SOURCE_MAIN; type: 'state'; payload: RootStoreState }
+  | { source: typeof MSG_SOURCE_MAIN; type: 'store-replaced'; payload: { diagnostic: DiagnosticReport } }
   | { source: typeof MSG_SOURCE_MAIN; type: 'gone'; payload: { reason: string } };
 
 export type IsoToMainMessage =

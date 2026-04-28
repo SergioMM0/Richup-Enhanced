@@ -300,6 +300,14 @@ function scheduleStatePush(state: unknown): void {
   });
 }
 
+// Re-discovery cadence. Richup creates a fresh Zustand store when a new game
+// starts in the same room (the host page tears down and remounts the game
+// React tree); the original subscription then dangles silently. Every tick we
+// re-walk the fiber tree and swap subscriptions if the live store reference
+// has changed. The walk has its own 200ms time budget, so the worst-case CPU
+// cost is bounded.
+const REDISCOVERY_INTERVAL_MS = 2000;
+
 async function bootstrap(): Promise<void> {
   console.log(`${TAG} starting fiber search`);
   // Expose a no-op debug handle right away so the console can probe even
@@ -307,35 +315,62 @@ async function bootstrap(): Promise<void> {
   exposeMainWorldDebug(() => null);
 
   const result = await waitForStore();
-  const store = result.store!;
+  let currentStore = result.store!;
+  let lastDiag: DiagnosticReport = result.diagnostic;
 
   postToIso({
     source: MSG_SOURCE_MAIN,
     type: 'hello',
-    payload: { storeFound: true, diagnostic: result.diagnostic },
+    payload: { storeFound: true, diagnostic: lastDiag },
   });
-  console.log(`${TAG} store found`, result.diagnostic);
-  exposeMainWorldDebug(() => store.getState());
+  console.log(`${TAG} store found`, lastDiag);
+  exposeMainWorldDebug(() => currentStore.getState());
 
   // Push initial state immediately, then on every change.
-  scheduleStatePush(store.getState());
-  const unsubscribe = store.subscribe((s) => scheduleStatePush(s));
+  scheduleStatePush(currentStore.getState());
+  let unsubscribe = currentStore.subscribe((s) => scheduleStatePush(s));
 
   // Respond to ad-hoc requests from isolated world.
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     if (!isIsoToMain(e.data)) return;
     if (e.data.type === 'request-state') {
-      scheduleStatePush(store.getState());
+      scheduleStatePush(currentStore.getState());
     }
     if (e.data.type === 'request-diagnostic') {
       postToIso({
         source: MSG_SOURCE_MAIN,
         type: 'hello',
-        payload: { storeFound: true, diagnostic: result.diagnostic },
+        payload: { storeFound: true, diagnostic: lastDiag },
       });
     }
   });
+
+  setInterval(() => {
+    if (!ROOM_PATH_RE.test(location.pathname)) return;
+    const r = walkAndFind();
+    if (!r.store || r.store === currentStore) return;
+    console.log(`${TAG} store reference replaced; resubscribing`, r.diagnostic);
+    try {
+      unsubscribe();
+    } catch (err) {
+      console.warn(`${TAG} old unsubscribe threw`, err);
+    }
+    currentStore = r.store;
+    lastDiag = r.diagnostic;
+    unsubscribe = currentStore.subscribe((s) => scheduleStatePush(s));
+    // Push the fresh state immediately so the iso world doesn't have to wait
+    // for the next host-side mutation. Signal the swap separately so the iso
+    // world can flush per-game caches even when the new state's session-key
+    // happens to match the old one.
+    scheduleStatePush(currentStore.getState());
+    postToIso({
+      source: MSG_SOURCE_MAIN,
+      type: 'store-replaced',
+      payload: { diagnostic: lastDiag },
+    });
+    exposeMainWorldDebug(() => currentStore.getState());
+  }, REDISCOVERY_INTERVAL_MS);
 
   window.addEventListener('beforeunload', () => {
     unsubscribe();

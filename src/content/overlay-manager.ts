@@ -57,6 +57,7 @@ export class OverlayManager {
   private infoMenu: InfoMenuOverlay | null = null;
   private landingChips: LandingChipsOverlay | null = null;
   private unsubscribeStore: (() => void) | null = null;
+  private unsubscribeReplaced: (() => void) | null = null;
   private currentSessionKey: string | null = null;
   private boundVisibility = () => this.handleVisibility();
 
@@ -86,12 +87,25 @@ export class OverlayManager {
       this.infoMenu?.update(state);
     });
 
+    // The session-key check above catches new-game transitions where MAIN keeps
+    // the same Zustand store and just mutates state. When MAIN reports the
+    // store object itself was replaced (richup remounts the game tree on
+    // restart), force a reset unconditionally — the new state's session-key
+    // could legitimately match the old one in edge cases.
+    this.unsubscribeReplaced = this.source.onStoreReplaced(() => {
+      console.log('[RUE] store replaced; resetting overlay session');
+      this.currentSessionKey = null;
+      this.resetSession();
+    });
+
     document.addEventListener('visibilitychange', this.boundVisibility);
   }
 
   destroy(): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.unsubscribeReplaced?.();
+    this.unsubscribeReplaced = null;
     document.removeEventListener('visibilitychange', this.boundVisibility);
     this.infoMenu?.destroy();
     this.infoMenu = null;

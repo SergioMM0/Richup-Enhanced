@@ -13,6 +13,11 @@ import {
 export interface StateSource {
   getState: () => RootStoreState | null;
   subscribe: (cb: (s: RootStoreState) => void) => () => void;
+  // Fired when the MAIN world reports the underlying Zustand store reference
+  // has been replaced (e.g. richup creates a fresh store for a new game in
+  // the same room). Consumers should treat it as a hard "discard per-game
+  // caches" signal — a fresh state push always follows.
+  onStoreReplaced: (cb: () => void) => () => void;
   getLastDiagnostic: () => DiagnosticReport | null;
 }
 
@@ -29,6 +34,7 @@ function postToMain(message: IsoToMainMessage): void {
 class Relay implements StateSource {
   private latest: RootStoreState | null = null;
   private listeners = new Set<(s: RootStoreState) => void>();
+  private replacedListeners = new Set<() => void>();
   private lastDiagnostic: DiagnosticReport | null = null;
 
   constructor() {
@@ -50,6 +56,19 @@ class Relay implements StateSource {
       }
     } else if (msg.type === 'hello') {
       this.lastDiagnostic = msg.payload.diagnostic;
+    } else if (msg.type === 'store-replaced') {
+      this.lastDiagnostic = msg.payload.diagnostic;
+      // Drop the stale snapshot so any synchronous getState() after this
+      // point doesn't leak the dead game's data while we wait for the
+      // post-replace state push (which MAIN sends right after this signal).
+      this.latest = null;
+      for (const cb of this.replacedListeners) {
+        try {
+          cb();
+        } catch (err) {
+          console.warn('[RUE] store-replaced listener threw', err);
+        }
+      }
     } else if (msg.type === 'gone') {
       this.latest = null;
     }
@@ -62,6 +81,11 @@ class Relay implements StateSource {
   subscribe(cb: (s: RootStoreState) => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
+  }
+
+  onStoreReplaced(cb: () => void): () => void {
+    this.replacedListeners.add(cb);
+    return () => this.replacedListeners.delete(cb);
   }
 
   getLastDiagnostic(): DiagnosticReport | null {
