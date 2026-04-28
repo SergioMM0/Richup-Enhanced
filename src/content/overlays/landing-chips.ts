@@ -296,6 +296,13 @@ export class LandingChipsOverlay {
     this.container = null;
   }
 
+  resetSession(): void {
+    this.hoveredParticipantId = null;
+    this.pinnedParticipantId = null;
+    this.lastRenderedKey = null;
+    this.clear();
+  }
+
   applySettings(settings: RUESettings): void {
     this.settings = settings;
     if (!this.container) return;

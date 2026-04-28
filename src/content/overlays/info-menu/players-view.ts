@@ -41,6 +41,19 @@ export class PlayersView implements InfoMenuView {
     return this.chipsEl;
   }
 
+  resetSession(): void {
+    for (const entry of this.chips.values()) entry.wrap.remove();
+    this.chips.clear();
+    this.activePlayerId = null;
+    // Broadcast unpin so LandingChipsOverlay drops its copy in lockstep — its
+    // own resetSession runs too, but explicit decoupled signaling is safer than
+    // relying on call ordering across overlays.
+    if (this.pinnedPlayerId !== null) {
+      this.pinnedPlayerId = null;
+      this.dispatchPin(null);
+    }
+  }
+
   renderBody(state: RootStoreState | null): HTMLElement {
     if (!state) return this.emptyMessage('Waiting for game state…');
     if (!this.activePlayerId) return this.emptyMessage('No active players');

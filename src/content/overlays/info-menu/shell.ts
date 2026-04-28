@@ -154,6 +154,12 @@ export class InfoMenuOverlay {
     this.renderActiveView();
   }
 
+  resetSession(): void {
+    for (const entry of this.views.values()) entry.view.resetSession?.();
+    this.lastState = null;
+    this.renderActiveView();
+  }
+
   private registerView(view: InfoMenuView): void {
     if (this.views.has(view.id)) return;
 

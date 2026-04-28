@@ -10,5 +10,6 @@ export interface InfoMenuView {
   attach?(context: ViewContext): void;
   renderSubHeader?(state: RootStoreState | null): HTMLElement | null;
   renderBody(state: RootStoreState | null): HTMLElement;
+  resetSession?(): void;
   destroy?(): void;
 }
