@@ -9,18 +9,32 @@ import {
 
 const CONTAINER_ID = 'rue-overlay-root';
 
-const SHADOW_CSS = `
-  :host { all: initial; }
-  .root {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 2147483000;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  ${INFO_MENU_CSS}
-  ${LANDING_CHIPS_CSS}
-`;
+// Windows' default emoji font (Segoe UI Emoji) intentionally omits country
+// flag glyphs — Chrome falls back to rendering the regional-indicator letters
+// as plain text. We bundle Twemoji Country Flags as a web-accessible resource
+// and pull it in via @font-face so flags render the same on every platform.
+// Built at runtime so chrome.runtime.getURL() resolves to the actual asset URL.
+function buildShadowCss(): string {
+  const flagFontUrl = chrome.runtime.getURL('public/fonts/TwemojiCountryFlags.woff2');
+  return `
+    @font-face {
+      font-family: 'Twemoji Country Flags';
+      src: url('${flagFontUrl}') format('woff2');
+      font-display: swap;
+      unicode-range: U+1F1E6-1F1FF;
+    }
+    :host { all: initial; }
+    .root {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2147483000;
+      font-family: 'Twemoji Country Flags', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    ${INFO_MENU_CSS}
+    ${LANDING_CHIPS_CSS}
+  `;
+}
 
 export class OverlayManager {
   private source: StateSource;
@@ -85,7 +99,7 @@ export class OverlayManager {
 
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
-    style.textContent = SHADOW_CSS;
+    style.textContent = buildShadowCss();
     shadow.appendChild(style);
 
     const root = document.createElement('div');

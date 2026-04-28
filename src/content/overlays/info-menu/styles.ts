@@ -14,7 +14,10 @@ export const INFO_MENU_CSS = `
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     color: #f5f5f7;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* 'Twemoji Country Flags' is paired with a unicode-range that targets only
+       regional-indicator codepoints, so it only kicks in for flag glyphs and
+       regular text still renders in the system font stack. */
+    font-family: 'Twemoji Country Flags', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 13px;
     line-height: 1.4;
     pointer-events: auto;
@@ -266,5 +269,67 @@ export const INFO_MENU_CSS = `
     text-align: center;
     color: rgba(245, 245, 247, 0.5);
     font-size: 12px;
+  }
+  .info-menu__rank-card {
+    border-left: 3px solid color-mix(in srgb, var(--tab-color, #888) 70%, transparent);
+    padding: 8px 0 12px 10px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .info-menu__rank-card:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+  .info-menu__rank-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .info-menu__rank-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: color-mix(in srgb, var(--tab-color, #888) 28%, rgba(20, 20, 28, 0.85));
+    border: 1px solid color-mix(in srgb, var(--tab-color, #888) 50%, transparent);
+    border-radius: 4px;
+    color: #f5f5f7;
+  }
+  .info-menu__rank-name {
+    flex: 1;
+    font-weight: 700;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .info-menu__rank-total {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .info-menu__rank-summary {
+    font-size: 11px;
+    color: rgba(245, 245, 247, 0.55);
+    margin-bottom: 4px;
+  }
+  .info-menu__property-group-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(245, 245, 247, 0.5);
+    margin: 8px 0 2px;
+  }
+  .info-menu__row--mortgaged .info-menu__row-label,
+  .info-menu__row--mortgaged .info-menu__row-value {
+    opacity: 0.55;
   }
 `;

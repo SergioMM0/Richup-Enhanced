@@ -41,4 +41,13 @@ export default defineManifest({
     '48': 'public/icons/icon48.png',
     '128': 'public/icons/icon128.png',
   },
+  // Fonts injected via @font-face inside the overlay's Shadow DOM are fetched
+  // from the page's context, so they must be exposed as web-accessible
+  // resources for richup.io.
+  web_accessible_resources: [
+    {
+      resources: ['public/fonts/*'],
+      matches: ['https://richup.io/*'],
+    },
+  ],
 });

@@ -6,6 +6,7 @@ import {
   type InfoMenuLayout,
 } from '@shared/layout';
 import { PlayersView } from './players-view';
+import { RankingView } from './ranking-view';
 import type { InfoMenuView } from './types';
 
 interface ViewEntry {
@@ -99,6 +100,7 @@ export class InfoMenuOverlay {
     this.header.addEventListener('pointerdown', this.boundPointerDown);
 
     this.registerView(new PlayersView());
+    this.registerView(new RankingView());
 
     this.applySettings(this.settings);
   }
