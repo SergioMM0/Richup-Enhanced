@@ -176,6 +176,65 @@ describe('findTradeOpportunities — mutual swaps', () => {
   });
 });
 
+describe('findTradeOpportunities — 1↔2 mutual bundles', () => {
+  it('emits two bundles and suppresses the underlying two-aways and singleton offers', () => {
+    // Mirrors the user-reported case: self owns one piece of each set; bob
+    // owns the other two of each. Both pairs of (self-two-away, partner-
+    // one-away) should bundle into mutual swaps.
+    const blocks: Block[] = [
+      city({ name: 'Frankfurt', ownerId: 'self', countryId: 'german' }),
+      city({ name: 'Munich', ownerId: 'bob', countryId: 'german' }),
+      city({ name: 'Berlin', ownerId: 'bob', countryId: 'german' }),
+      city({ name: 'Jerusalem', ownerId: 'self', countryId: 'israeli' }),
+      city({ name: 'Tel Aviv', ownerId: 'bob', countryId: 'israeli' }),
+      city({ name: 'Haifa', ownerId: 'bob', countryId: 'israeli' }),
+    ];
+    const opps = findTradeOpportunities({
+      selfId: 'self',
+      participants: [self, bob],
+      blocks,
+      settings,
+      selfMoney: self.money,
+    });
+    const mutuals = opps.filter((o) => o.kind === 'mutual-swap');
+    expect(mutuals).toHaveLength(2);
+    // Each bundle gives 1, gets 2.
+    for (const m of mutuals) {
+      expect(m.offerBlockIndexes).toHaveLength(1);
+      expect(m.wantedBlockIndexes).toHaveLength(2);
+      expect(m.partnerId).toBe('bob');
+    }
+    // The two-aways and singleton-offers that fed the bundles must not also
+    // be emitted as standalone cards.
+    expect(opps.filter((o) => o.kind === 'two-away')).toHaveLength(0);
+    expect(opps.filter((o) => o.kind === 'singleton-offer')).toHaveLength(0);
+    // The two bundles should reference disjoint pieces.
+    const allWanted = mutuals.flatMap((m) => m.wantedBlockIndexes);
+    const allOffered = mutuals.flatMap((m) => m.offerBlockIndexes);
+    expect(new Set(allWanted).size).toBe(allWanted.length);
+    expect(new Set(allOffered).size).toBe(allOffered.length);
+  });
+
+  it('falls through to two-away when no partner-one-away pairs with the self-two-away', () => {
+    // Self is two-away on green (bob owns both missing pieces) but bob has
+    // no near-set requiring a self-owned piece, so nothing to bundle with.
+    const blocks: Block[] = [
+      city({ name: 'A', ownerId: 'self', countryId: 'green' }),
+      city({ name: 'B', ownerId: 'bob', countryId: 'green' }),
+      city({ name: 'C', ownerId: 'bob', countryId: 'green' }),
+    ];
+    const opps = findTradeOpportunities({
+      selfId: 'self',
+      participants: [self, bob],
+      blocks,
+      settings,
+      selfMoney: self.money,
+    });
+    expect(opps.filter((o) => o.kind === 'mutual-swap')).toHaveLength(0);
+    expect(opps.filter((o) => o.kind === 'two-away')).toHaveLength(1);
+  });
+});
+
 describe('findTradeOpportunities — two-away with single seller', () => {
   it('emits when one opponent owns both missing pieces', () => {
     const blocks: Block[] = [

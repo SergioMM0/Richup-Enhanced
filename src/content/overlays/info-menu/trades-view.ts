@@ -159,8 +159,14 @@ export class TradesView implements InfoMenuView {
 
   private summaryFor(opp: TradeOpportunity, blocks: Block[]): string | null {
     switch (opp.kind) {
-      case 'mutual-swap':
-        return 'Both gain monopolies — usually a clean swap';
+      case 'mutual-swap': {
+        const give = opp.offerBlockIndexes.length;
+        const get = opp.wantedBlockIndexes.length;
+        if (give === get) {
+          return 'Both gain monopolies — clean swap';
+        }
+        return `Both gain monopolies — ${give} for ${get}`;
+      }
       case 'one-away':
         return this.setSummary(opp.wantedBlockIndexes[0], opp.setSize, blocks);
       case 'two-away':

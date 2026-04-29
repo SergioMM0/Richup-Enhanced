@@ -113,6 +113,17 @@ interface PartnerOneAway {
   valueScoreToPartner: number;
 }
 
+interface SelfTwoAway {
+  countryId: string;
+  setSize: number;
+  missingBlockIndexes: number[];
+  missingBlocks: CityBlock[];
+  partnerId: string;
+  rentBefore: number;
+  rentAfter: number;
+  valueScore: number;
+}
+
 export function findTradeOpportunities(
   input: FindTradesInput,
 ): TradeOpportunity[] {
@@ -145,22 +156,32 @@ export function findTradeOpportunities(
     settings,
     citiesByCountry,
   });
+  const selfTwoAways = findSelfTwoAways({
+    selfId,
+    opponents,
+    blocks,
+    settings,
+    citiesByCountry,
+    opponentSampleId,
+  });
 
   const opps: TradeOpportunity[] = [];
-  const consumedSelfCountries = new Set<string>();
+  const consumedSelfOneAwayCountries = new Set<string>();
+  const consumedSelfTwoAwayCountries = new Set<string>();
   const mutualOfferedBlocks = new Set<number>();
 
+  // 1:1 mutual swaps: each side is one-away, holding the other's missing piece.
   for (const sa of selfOneAways) {
     const match = partnerOneAways.find(
       (pa) =>
         pa.partnerId === sa.partnerId &&
         pa.missingBlock.ownerId === selfId &&
-        // Don't pair a set with itself when sa and pa describe the same group
-        // (impossible by ownership, but guard anyway).
-        pa.countryId !== sa.countryId,
+        // Different country pairs the trade across two sets, not within one.
+        pa.countryId !== sa.countryId &&
+        !mutualOfferedBlocks.has(pa.missingBlockIndex),
     );
     if (!match) continue;
-    consumedSelfCountries.add(sa.countryId);
+    consumedSelfOneAwayCountries.add(sa.countryId);
     mutualOfferedBlocks.add(match.missingBlockIndex);
     opps.push({
       kind: 'mutual-swap',
@@ -176,8 +197,47 @@ export function findTradeOpportunities(
     });
   }
 
+  // 1:2 mutual bundles: self gives partner's lone missing piece, partner gives
+  // back the two pieces self needs to complete a different set. Both monopolize.
+  for (const sta of selfTwoAways) {
+    const match = partnerOneAways.find(
+      (pa) =>
+        pa.partnerId === sta.partnerId &&
+        pa.missingBlock.ownerId === selfId &&
+        pa.countryId !== sta.countryId &&
+        !mutualOfferedBlocks.has(pa.missingBlockIndex),
+    );
+    if (!match) continue;
+    consumedSelfTwoAwayCountries.add(sta.countryId);
+    mutualOfferedBlocks.add(match.missingBlockIndex);
+
+    // Partner gives more property than self does (2 vs 1) — suggest a cash
+    // sweetener equal to half the price imbalance, capped by self's cash.
+    const partnerGivesPrice = sta.missingBlocks.reduce(
+      (s, b) => s + b.price,
+      0,
+    );
+    const selfGivesPrice = match.missingBlock.price;
+    const imbalance = Math.max(0, partnerGivesPrice - selfGivesPrice);
+    const cashCap = Math.floor(selfMoney * 0.4);
+    const suggested = Math.max(0, Math.min(cashCap, Math.round(imbalance / 2)));
+
+    opps.push({
+      kind: 'mutual-swap',
+      partnerId: sta.partnerId,
+      wantedBlockIndexes: sta.missingBlockIndexes,
+      offerBlockIndexes: [match.missingBlockIndex],
+      suggestedCash: suggested,
+      valueScore: sta.valueScore,
+      rentBefore: sta.rentBefore,
+      rentAfter: sta.rentAfter,
+      setSize: sta.setSize,
+      partnerSetSize: match.setSize,
+    });
+  }
+
   for (const sa of selfOneAways) {
-    if (consumedSelfCountries.has(sa.countryId)) continue;
+    if (consumedSelfOneAwayCountries.has(sa.countryId)) continue;
     opps.push({
       kind: 'one-away',
       partnerId: sa.partnerId,
@@ -195,16 +255,20 @@ export function findTradeOpportunities(
     });
   }
 
-  for (const opp of findTwoAwayOpps({
-    selfId,
-    opponents,
-    blocks,
-    settings,
-    citiesByCountry,
-    opponentSampleId,
-    selfMoney,
-  })) {
-    opps.push(opp);
+  for (const sta of selfTwoAways) {
+    if (consumedSelfTwoAwayCountries.has(sta.countryId)) continue;
+    const totalPrice = sta.missingBlocks.reduce((s, b) => s + b.price, 0);
+    opps.push({
+      kind: 'two-away',
+      partnerId: sta.partnerId,
+      wantedBlockIndexes: sta.missingBlockIndexes,
+      offerBlockIndexes: [],
+      suggestedCash: suggestCash(sta.valueScore, totalPrice, selfMoney),
+      valueScore: sta.valueScore,
+      rentBefore: sta.rentBefore,
+      rentAfter: sta.rentAfter,
+      setSize: sta.setSize,
+    });
   }
 
   for (const pa of partnerOneAways) {
@@ -355,28 +419,19 @@ function findPartnerOneAways(input: PartnerOneAwayInput): PartnerOneAway[] {
   return out;
 }
 
-interface TwoAwayInput {
+interface SelfTwoAwayInput {
   selfId: string;
   opponents: Participant[];
   blocks: Block[];
   settings: GameSettings;
   citiesByCountry: Map<string, IndexedCity[]>;
   opponentSampleId: string;
-  selfMoney: number;
 }
 
-function findTwoAwayOpps(input: TwoAwayInput): TwoAwayCityOpp[] {
-  const {
-    selfId,
-    opponents,
-    blocks,
-    settings,
-    citiesByCountry,
-    opponentSampleId,
-    selfMoney,
-  } = input;
-  const out: TwoAwayCityOpp[] = [];
-  for (const [, allCities] of citiesByCountry) {
+function findSelfTwoAways(input: SelfTwoAwayInput): SelfTwoAway[] {
+  const { selfId, opponents, blocks, settings, citiesByCountry, opponentSampleId } = input;
+  const out: SelfTwoAway[] = [];
+  for (const [countryId, allCities] of citiesByCountry) {
     // 2-city sets cannot be 'two-away' from a self perspective in a useful
     // way (self would own zero pieces) — gate on 3+.
     if (allCities.length < 3) continue;
@@ -400,18 +455,15 @@ function findTwoAwayOpps(input: TwoAwayInput): TwoAwayCityOpp[] {
       opponentSampleId,
       settings,
     );
-    const valueScore = rentAfter - rentBefore;
-    const totalPrice = missing.reduce((s, c) => s + c.block.price, 0);
     out.push({
-      kind: 'two-away',
+      countryId,
+      setSize: allCities.length,
+      missingBlockIndexes: missing.map((c) => c.index),
+      missingBlocks: missing.map((c) => c.block),
       partnerId,
-      wantedBlockIndexes: missing.map((c) => c.index),
-      offerBlockIndexes: [],
-      suggestedCash: suggestCash(valueScore, totalPrice, selfMoney),
-      valueScore,
       rentBefore,
       rentAfter,
-      setSize: allCities.length,
+      valueScore: rentAfter - rentBefore,
     });
   }
   return out;
