@@ -332,4 +332,30 @@ export const INFO_MENU_CSS = `
   .info-menu__row--mortgaged .info-menu__row-value {
     opacity: 0.55;
   }
+  .rue-auction-subheader {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 12px;
+  }
+  .rue-auction-subheader__label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    color: rgba(245, 245, 247, 0.55);
+  }
+  .rue-auction-subheader__tile {
+    flex: 1;
+    font-weight: 600;
+    color: #f5f5f7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rue-auction-subheader__price {
+    font-variant-numeric: tabular-nums;
+    color: rgba(245, 245, 247, 0.7);
+    font-size: 11px;
+  }
 `;

@@ -86,7 +86,7 @@ const KIND_PRIORITY: Record<TradeKind, number> = {
   'singleton-offer': 4,
 };
 
-interface IndexedCity {
+export interface IndexedCity {
   block: CityBlock;
   index: number;
 }
@@ -523,7 +523,7 @@ function findAirportOpps(input: AirportOppInput): AirportOpp[] {
   return out;
 }
 
-function sumSelfAirportRent(
+export function sumSelfAirportRent(
   blocks: Block[],
   selfId: string,
   sampleId: string,
@@ -555,7 +555,7 @@ function countSelfAirports(blocks: Block[], selfId: string): number {
 // Rewrites the given indexes to be owned by `newOwnerId`, with houses razed
 // (`level: 0`) and unmortgaged so cityLandingRent applies the post-trade
 // monopoly bonus rather than skipping the tile.
-function simulateOwnership(
+export function simulateOwnership(
   blocks: Block[],
   indexes: number[],
   newOwnerId: string,
@@ -574,7 +574,7 @@ function simulateOwnership(
   });
 }
 
-interface SetRent {
+export interface SetRent {
   rentBefore: number;
   rentAfter: number;
 }
@@ -583,7 +583,7 @@ interface SetRent {
 //  - before: only tiles already owned by `monopolyOwnerId`
 //  - after:  the same tile set with `monopolyOwnerId` owning all of them (and
 //            the doubled-rent rule applying to bare-level cities).
-function sumSetRent(
+export function sumSetRent(
   cities: IndexedCity[],
   hypothetical: Block[],
   baseBlocks: Block[],
@@ -607,7 +607,7 @@ function sumSetRent(
   return { rentBefore, rentAfter };
 }
 
-function suggestCash(
+export function suggestCash(
   valueScore: number,
   propertyPrice: number,
   money: number,

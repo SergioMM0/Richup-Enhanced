@@ -5,6 +5,7 @@ import {
   saveLayout,
   type InfoMenuLayout,
 } from '@shared/layout';
+import { AuctionView } from './auction-view';
 import { PlayersView } from './players-view';
 import { RankingView } from './ranking-view';
 import { TradesView } from './trades-view';
@@ -103,6 +104,7 @@ export class InfoMenuOverlay {
     this.registerView(new PlayersView());
     this.registerView(new RankingView());
     this.registerView(new TradesView());
+    this.registerView(new AuctionView());
 
     this.applySettings(this.settings);
   }
@@ -149,6 +151,23 @@ export class InfoMenuOverlay {
     const visible = settings.overlaysEnabled && settings.showInfoMenu;
     this.root.style.display = visible ? '' : 'none';
     this.root.style.opacity = String(settings.overlayOpacity);
+
+    // Per-view gating: hide tabs whose view returns isEnabled(settings)===false
+    // and ensure the active tab is still a visible one.
+    let activeStillVisible = false;
+    for (const [id, entry] of this.views) {
+      const enabled = entry.view.isEnabled?.(settings) ?? true;
+      entry.tabEl.style.display = enabled ? '' : 'none';
+      if (id === this.activeViewId && enabled) activeStillVisible = true;
+    }
+    if (!activeStillVisible) {
+      const fallback = this.viewOrder.find((id) => {
+        const entry = this.views.get(id);
+        if (!entry) return false;
+        return entry.view.isEnabled?.(settings) ?? true;
+      });
+      if (fallback) this.setActiveView(fallback);
+    }
   }
 
   update(state: RootStoreState | null): void {

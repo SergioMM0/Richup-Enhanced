@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: RUESettings = {
   showInfoMenu: true,
   showLandingChips: true,
   showLandingChipsForCurrentTurn: false,
+  showAuctionAdvisor: true,
   overlayOpacity: 0.85,
 };
 

@@ -1,14 +1,8 @@
-import type {
-  Block,
-  BoardConfig,
-  Participant,
-  RUESettings,
-} from '@shared/types';
+import type { Participant, RUESettings } from '@shared/types';
 import { airportLandingRent, cityLandingRent } from '../analytics/property';
+import { DICE_SUMS, predictLanding } from '../analytics/dice';
 import { formatMoney } from '../analytics/player';
 import type { StateSource } from '../store-relay';
-
-const BOARD_SIZE = 40;
 
 type TileSide = 'top' | 'right' | 'bottom' | 'left' | 'corner';
 // Chip footprint. The chip is meant to *replace* the host page's price label,
@@ -27,14 +21,6 @@ function tileSide(index: number): TileSide {
   return 'left';
 }
 
-const DICE_SUMS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
-
-interface Prediction {
-  tileIndex: number;
-  redirected: boolean; // landed on Go-to-Prison, redirected to prison
-  uncertain: boolean;  // landed on a bonus tile; card may teleport
-}
-
 const LANDING_CHIPS_BUILD = 'v6-2026-04-28-rotate-whole-chip';
 console.log('[RUE landing-chips] module loaded', LANDING_CHIPS_BUILD);
 
@@ -50,24 +36,6 @@ function debug(...args: unknown[]): void {
   } catch {
     // sessionStorage can throw in sandboxed iframes; ignore.
   }
-}
-
-function predictLanding(
-  blocks: Block[],
-  boardConfig: BoardConfig | undefined,
-  fromPos: number,
-  sum: number,
-): Prediction {
-  const raw = (fromPos + sum) % BOARD_SIZE;
-  const block = blocks[raw];
-  if (block?.type === 'corner' && block.cornerType === 'go_to_prison') {
-    const prison = boardConfig?.prisonBlockIndex ?? 10;
-    return { tileIndex: prison, redirected: true, uncertain: false };
-  }
-  if (block?.type === 'bonus') {
-    return { tileIndex: raw, redirected: false, uncertain: true };
-  }
-  return { tileIndex: raw, redirected: false, uncertain: false };
 }
 
 function chipAnchor(

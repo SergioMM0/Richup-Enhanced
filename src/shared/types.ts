@@ -187,5 +187,6 @@ export interface RUESettings {
   showInfoMenu: boolean;
   showLandingChips: boolean;
   showLandingChipsForCurrentTurn: boolean;
+  showAuctionAdvisor: boolean;
   overlayOpacity: number;
 }
