@@ -86,20 +86,22 @@ export function evaluateAuction(
   const block = blocks[blockIndex];
   if (!block) return null;
 
-  const self = state.participants.find((p) => p.id === selfId);
+  const participants = Array.isArray(state.participants) ? state.participants : [];
+  const self = participants.find((p) => p.id === selfId);
   if (!self) return null;
   if (self.bankruptedAt !== null) return null;
   if (self.votekickedAt !== null) return null;
   if (self.connectivity === 'disconnected') return null;
 
-  const opponents = state.participants.filter(
+  const opponents = participants.filter(
     (p) =>
       p.id !== selfId &&
       p.bankruptedAt === null &&
       p.votekickedAt === null,
   );
 
-  const phaseRatio = computePhaseRatio(opponents, state.settings.startingCash);
+  const startingCash = state.settings?.startingCash ?? 0;
+  const phaseRatio = computePhaseRatio(opponents, startingCash);
   const horizonRolls =
     phaseRatio < PHASE_EARLY
       ? HORIZON_EARLY
@@ -275,13 +277,42 @@ function computeThreat(opponents: Participant[]): {
   return { ceiling, opponentId };
 }
 
-function highestBid(bids: Record<string, number>): {
+// Tolerant of shapes we haven't pinned down: richup's `auction.bids` could be a
+// Record<id, amount>, an array of {by/playerId, amount} entries, or absent
+// entirely on a freshly-started auction. Anything we don't recognize collapses
+// to "no bids" rather than throwing — a wrong "No bids yet" line is far better
+// than the whole advisor crashing.
+function highestBid(bids: unknown): {
   highBid: number;
   highBidderId: string | null;
 } {
   let highBid = 0;
   let highBidderId: string | null = null;
-  for (const [id, amount] of Object.entries(bids)) {
+  if (!bids || typeof bids !== 'object') return { highBid, highBidderId };
+
+  if (Array.isArray(bids)) {
+    for (const entry of bids) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      const amount = typeof e.amount === 'number' ? e.amount : null;
+      if (amount === null) continue;
+      const id =
+        typeof e.participantId === 'string'
+          ? e.participantId
+          : typeof e.playerId === 'string'
+            ? e.playerId
+            : typeof e.by === 'string'
+              ? e.by
+              : null;
+      if (amount > highBid) {
+        highBid = amount;
+        highBidderId = id;
+      }
+    }
+    return { highBid, highBidderId };
+  }
+
+  for (const [id, amount] of Object.entries(bids as Record<string, unknown>)) {
     if (typeof amount !== 'number') continue;
     if (amount > highBid) {
       highBid = amount;
@@ -291,7 +322,8 @@ function highestBid(bids: Record<string, number>): {
   return { highBid, highBidderId };
 }
 
-function computeSecondsRemaining(endAt: string): number {
+function computeSecondsRemaining(endAt: string | undefined | null): number {
+  if (!endAt) return 0;
   const t = Date.parse(endAt);
   if (Number.isNaN(t)) return 0;
   return Math.max(0, Math.round((t - Date.now()) / 1000));

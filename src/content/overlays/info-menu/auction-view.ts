@@ -53,16 +53,33 @@ export class AuctionView implements InfoMenuView {
     if (!inner) return this.emptyMessage('Waiting for game state…');
     if (!inner.auction) return this.emptyMessage('No auction in progress');
 
-    const advice = evaluateAuction(inner, state.selfParticipantId);
+    // The auction object's exact shape is unverified — wrap evaluation so a
+    // throw inside the analytics module surfaces a useful message instead of
+    // bubbling up and leaving shell.body.replaceChildren never called (which
+    // strands the body on whatever it rendered before the auction started).
+    let advice: AuctionAdvice | null;
+    try {
+      advice = evaluateAuction(inner, state.selfParticipantId);
+    } catch (err) {
+      console.error('[RUE] auction advisor crashed', err, {
+        auction: inner.auction,
+        selfId: state.selfParticipantId,
+      });
+      return this.emptyMessage('Advisor crashed — check the console for details');
+    }
     if (!advice) {
       return this.emptyMessage(
         'Advisor unavailable (you may be bankrupt or disconnected)',
       );
     }
 
+    const participants = Array.isArray(inner.participants)
+      ? inner.participants
+      : [];
+
     const card = document.createElement('section');
     card.className = 'info-menu__rank-card';
-    const accent = this.accentFor(advice, inner.participants);
+    const accent = this.accentFor(advice, participants);
     card.style.setProperty('--tab-color', accent);
 
     card.appendChild(this.renderHeader(advice));
@@ -112,12 +129,12 @@ export class AuctionView implements InfoMenuView {
       ),
     );
 
-    const threatRow = this.threatRow(advice, inner.participants);
+    const threatRow = this.threatRow(advice, participants);
     if (threatRow) card.appendChild(threatRow);
 
     card.appendChild(this.divider());
 
-    const highRow = this.highBidRow(advice, inner.participants);
+    const highRow = this.highBidRow(advice, participants);
     if (highRow) card.appendChild(highRow);
     card.appendChild(
       this.row('Time left', this.formatSeconds(advice.components.secondsRemaining)),
