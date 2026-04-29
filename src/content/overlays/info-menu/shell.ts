@@ -7,6 +7,7 @@ import {
 } from '@shared/layout';
 import { PlayersView } from './players-view';
 import { RankingView } from './ranking-view';
+import { TradesView } from './trades-view';
 import type { InfoMenuView } from './types';
 
 interface ViewEntry {
@@ -101,6 +102,7 @@ export class InfoMenuOverlay {
 
     this.registerView(new PlayersView());
     this.registerView(new RankingView());
+    this.registerView(new TradesView());
 
     this.applySettings(this.settings);
   }
