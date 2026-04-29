@@ -128,6 +128,15 @@ export class AuctionView implements InfoMenuView {
         'Hard ceiling: you should not commit more than this fraction of cash to the auction',
       ),
     );
+    if (advice.components.mortgageFloor > 0) {
+      card.appendChild(
+        this.row(
+          'Mortgage floor',
+          formatMoney(advice.components.mortgageFloor),
+          'Recoverable by mortgaging the tile immediately after winning. Sets a floor on the max bid even when expected rent is low.',
+        ),
+      );
+    }
 
     const threatRow = this.threatRow(advice, participants);
     if (threatRow) card.appendChild(threatRow);
@@ -210,7 +219,7 @@ export class AuctionView implements InfoMenuView {
     const el = document.createElement('div');
     el.className = 'info-menu__rank-summary';
     if (advice.pass) {
-      el.textContent = 'Recommend: pass — value below half list price';
+      el.textContent = "Recommend: pass — can't even break even on a forced mortgage";
       el.style.color = '#ffbcbc';
     } else if (
       advice.components.currentHighBid > 0 &&
@@ -235,7 +244,7 @@ export class AuctionView implements InfoMenuView {
     return this.row(
       `Top threat (${name})`,
       formatMoney(advice.components.threatCeiling),
-      'Estimated max another player can credibly bid (40% of their cash)',
+      'Estimated max another player can credibly bid: 40% of their cash, scaled by their interest in this specific tile (existing same-set / airport / company holdings).',
     );
   }
 

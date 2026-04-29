@@ -197,14 +197,15 @@ describe('evaluateAuction — preconditions', () => {
   });
 });
 
-describe('evaluateAuction — city singleton', () => {
+describe('evaluateAuction — city singleton (3+ city set)', () => {
   it('produces a positive max bid bounded by liquidity', () => {
-    // 2-city set, both bank-owned. Self winning the auction takes 1/2 ownership
-    // — that's the "singleton" case (one piece, no monopoly imminent).
+    // 3-city set, all bank-owned. Self winning the auction takes 1/3 ownership
+    // — that's the "singleton" case (still 2 trades from monopoly).
     const state = makeState({
       blocks: makeBoard({
         7: city({ name: 'A', countryId: 'red', price: 200 }),
         17: city({ name: 'B', countryId: 'red', price: 200 }),
+        27: city({ name: 'C', countryId: 'red', price: 200 }),
       }),
       participants: [
         player({ id: 'self', position: 0, money: 1500 }),
@@ -217,9 +218,28 @@ describe('evaluateAuction — city singleton', () => {
     expect(advice.components.setBucket).toBe('singleton');
     expect(advice.maxBid).toBeGreaterThan(0);
     expect(advice.maxBid).toBeLessThanOrEqual(advice.components.liquidityCap);
-    // 14-roll horizon (phaseRatio = 1500/1500 = 1.0, mid bracket) — singleton
-    // alone shouldn't justify bidding above list price for a $200 tile.
+    // 14-roll horizon (phaseRatio = 1500/1500 = 1.0, mid bracket).
     expect(advice.components.horizonRolls).toBe(14);
+  });
+});
+
+describe('evaluateAuction — 2-city set one-away', () => {
+  it('buckets 1/2 ownership as one-away-after (one trade from monopoly)', () => {
+    // 2-city set (e.g. USA = NY + SF). Self winning takes 1/2 ownership which
+    // is *one trade away* from a monopoly, not a true singleton.
+    const state = makeState({
+      blocks: makeBoard({
+        7: city({ name: 'A', countryId: 'red', price: 200 }),
+        17: city({ name: 'B', countryId: 'red', price: 200 }),
+      }),
+      participants: [
+        player({ id: 'self', position: 0, money: 1500 }),
+        player({ id: 'bob', position: 0, money: 1500 }),
+      ],
+      auction: { blockIndex: 7, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    expect(advice.components.setBucket).toBe('one-away-after');
   });
 });
 
@@ -396,6 +416,119 @@ describe('evaluateAuction — pass recommendation', () => {
     // liquidityCap = 50, listPrice = 400, half = 200 → pass.
     expect(advice.components.liquidityCap).toBe(50);
     expect(advice.pass).toBe(true);
+  });
+});
+
+describe('evaluateAuction — mortgage floor', () => {
+  it('lifts maxBid to ≈ price/2 even when expected rent is zero', () => {
+    // Far from any opponent: 3-city set, all bank-owned, opponent stuck at the
+    // far side of the board with no chance of landing on the auctioned tile.
+    // Expected rent ≈ 0 → strategic value ≈ 0. Without the floor, the advisor
+    // would recommend $0 / pass, but mortgaging the won tile is recoverable
+    // cash so we should still bid up to roughly price/2.
+    const state = makeState({
+      blocks: makeBoard({
+        7: city({ name: 'A', countryId: 'red', price: 350 }),
+        17: city({ name: 'B', countryId: 'red', price: 350 }),
+        27: city({ name: 'C', countryId: 'red', price: 350 }),
+      }),
+      participants: [
+        // Both at position 0 — opponent rolling 7 lands on tile 7, so there
+        // is some expected rent. Move opponent to the bonus-tile zone past
+        // the auctioned tile to neutralize the per-roll probability.
+        player({ id: 'self', position: 0, money: 1500 }),
+        player({ id: 'bob', position: 25, money: 1500 }),
+      ],
+      auction: { blockIndex: 7, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    expect(advice.components.mortgageFloor).toBe(175);
+    // maxBid is at least the mortgage floor (rounded down), capped by liquidity.
+    expect(advice.maxBid).toBeGreaterThanOrEqual(175);
+    expect(advice.pass).toBe(false);
+  });
+
+  it('still recommends pass when even the mortgage floor is unaffordable', () => {
+    // High list price, very low cash → liquidityCap < mortgageFloor.
+    const blocks = makeBoard({ 7: city({ price: 400 }) });
+    const state = makeState({
+      blocks,
+      participants: [
+        player({ id: 'self', position: 0, money: 100 }),
+        player({ id: 'bob', position: 0, money: 100 }),
+      ],
+      auction: { blockIndex: 7, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    expect(advice.components.mortgageFloor).toBe(200);
+    expect(advice.components.liquidityCap).toBe(50);
+    // 50 < 200 * 0.9 → pass.
+    expect(advice.pass).toBe(true);
+  });
+});
+
+describe('evaluateAuction — per-tile threat weighting', () => {
+  it('boosts the airport threat ceiling for a 3-airport opponent on the 4th', () => {
+    const blocks = makeBoard({
+      5: airport({ name: 'A1', ownerId: 'bob' }),
+      15: airport({ name: 'A2', ownerId: 'bob' }),
+      25: airport({ name: 'A3', ownerId: 'bob' }),
+      35: airport({ name: 'A4', ownerId: null }),
+    });
+    const state = makeState({
+      blocks,
+      participants: [
+        player({ id: 'self', position: 0, money: 1500 }),
+        player({ id: 'bob', position: 0, money: 1000 }),
+      ],
+      auction: { blockIndex: 35, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    // bob would complete his airport monopoly → ladder slot 3 (interest=2.2).
+    // ceiling = floor(1000 * 0.4 * 2.2) = 880, vs flat 400 in the old logic.
+    expect(advice.components.threatCeiling).toBe(880);
+    expect(advice.components.threatOpponentId).toBe('bob');
+  });
+
+  it('boosts the city threat ceiling when an opponent would complete a 3-city monopoly', () => {
+    const blocks = makeBoard({
+      3: city({ name: 'A', countryId: 'red', ownerId: 'bob' }),
+      5: city({ name: 'B', countryId: 'red', ownerId: 'bob' }),
+      7: city({ name: 'C', countryId: 'red', ownerId: null }),
+    });
+    const state = makeState({
+      blocks,
+      participants: [
+        player({ id: 'self', position: 0, money: 1500 }),
+        player({ id: 'bob', position: 0, money: 1000 }),
+      ],
+      auction: { blockIndex: 7, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    // bob owns 2/3 of the set → ownedInSet+1 === setSize → 2.5x.
+    // ceiling = floor(1000 * 0.4 * 2.5) = 1000.
+    expect(advice.components.threatCeiling).toBe(1000);
+    expect(advice.components.threatOpponentId).toBe('bob');
+  });
+
+  it('keeps the flat 0.4 fraction when an opponent has no foothold in the set', () => {
+    // 3-city set, opponent owns nothing in it → interest multiplier 1.0.
+    const blocks = makeBoard({
+      7: city({ name: 'A', countryId: 'red' }),
+      17: city({ name: 'B', countryId: 'red' }),
+      27: city({ name: 'C', countryId: 'red' }),
+    });
+    const state = makeState({
+      blocks,
+      participants: [
+        player({ id: 'self', position: 0, money: 1500 }),
+        player({ id: 'bob', position: 0, money: 1000 }),
+      ],
+      auction: { blockIndex: 7, bids: {}, endAt: FAR_FUTURE },
+    });
+    const advice = evaluateAuction(state, 'self')!;
+    // Flat: 1000 * 0.4 = 400.
+    expect(advice.components.threatCeiling).toBe(400);
   });
 });
 

@@ -33,6 +33,10 @@ export interface AuctionAdviceComponents {
   setUplift: number;
   denialBonus: number;
   liquidityCap: number;
+  // Recoverable cash if you win the auction and immediately mortgage the tile
+  // (price × MORTGAGE_RECOVERY). Acts as a floor on maxBid: a bid below this
+  // amount is essentially free since the value can be reclaimed.
+  mortgageFloor: number;
   threatCeiling: number;
   threatOpponentId: string | null;
   currentHighBid: number;
@@ -72,6 +76,13 @@ const LIQUIDITY_NORMAL = 0.4;
 const THREAT_FRACTION = 0.4;
 const DENIAL_FRACTION = 0.5;
 const EXPECTED_DICE_SUM = 7;
+// Standard Monopoly / richup convention — mortgaging recovers half the listed
+// price. Mirrors `b.price / 2` in calcParticipantNetWorth (player.ts).
+const MORTGAGE_RECOVERY = 0.5;
+// pass triggers when even the mortgage floor isn't recoverable (liquidity
+// caps the bid below the recoverable amount). 0.9 leaves a sliver of slack so
+// near-misses don't flip into pass on rounding.
+const MORTGAGE_FLOOR_PASS_THRESHOLD = 0.9;
 
 export function evaluateAuction(
   state: GameState | null | undefined,
@@ -112,10 +123,11 @@ export function evaluateAuction(
     phaseRatio < PHASE_EARLY ? LIQUIDITY_EARLY : LIQUIDITY_NORMAL;
   const liquidityCap = Math.max(0, Math.floor(self.money * liquidityFraction));
 
-  const threat = computeThreat(opponents);
+  const threat = computeThreatForTile(block, opponents, blocks);
   const { highBid, highBidderId } = highestBid(auction.bids);
   const secondsRemaining = computeSecondsRemaining(auction.endAt);
   const listPrice = (block as { price?: number }).price ?? 0;
+  const mortgageFloor = Math.floor(listPrice * MORTGAGE_RECOVERY);
 
   const baseEmpty: AuctionAdviceComponents = {
     listPrice,
@@ -126,6 +138,7 @@ export function evaluateAuction(
     setUplift: 0,
     denialBonus: 0,
     liquidityCap,
+    mortgageFloor,
     threatCeiling: threat.ceiling,
     threatOpponentId: threat.opponentId,
     currentHighBid: highBid,
@@ -196,14 +209,21 @@ export function evaluateAuction(
   const strategicValue =
     expectedRent * multiplier + setEval.setUplift + setEval.denialBonus;
 
-  const maxBid = Math.max(0, Math.floor(Math.min(strategicValue, liquidityCap)));
+  // The mortgage floor is recoverable cash, so any bid up to that level has
+  // ≈ zero net cost. Floor maxBid against it; the liquidity cap still limits
+  // the absolute ceiling so we don't recommend bidding into bankruptcy.
+  const valuedBid = Math.max(strategicValue, mortgageFloor);
+  const maxBid = Math.max(0, Math.floor(Math.min(valuedBid, liquidityCap)));
   const suggestedOpening = Math.max(
     0,
     Math.floor(
       Math.min(threat.ceiling * 0.6, maxBid * 0.5, listPrice * 0.5),
     ),
   );
-  const pass = listPrice > 0 ? maxBid < listPrice / 2 : maxBid <= 0;
+  // Only recommend pass when even the mortgage floor isn't reachable — i.e.
+  // liquidity is so tight you can't even break even on a forced mortgage.
+  const pass =
+    listPrice > 0 ? maxBid < mortgageFloor * MORTGAGE_FLOOR_PASS_THRESHOLD : maxBid <= 0;
 
   return {
     blockIndex,
@@ -222,6 +242,7 @@ export function evaluateAuction(
       setUplift: setEval.setUplift,
       denialBonus: setEval.denialBonus,
       liquidityCap,
+      mortgageFloor,
       threatCeiling: threat.ceiling,
       threatOpponentId: threat.opponentId,
       currentHighBid: highBid,
@@ -261,20 +282,58 @@ function computePhaseRatio(
   return sum / opponents.length / startingCash;
 }
 
-function computeThreat(opponents: Participant[]): {
-  ceiling: number;
-  opponentId: string | null;
-} {
+// Threat ceiling weighted by each opponent's *interest* in the tile being
+// auctioned. A wealthy opponent who has no use for the tile is a smaller
+// threat than a poorer one who'd complete a monopoly with it. The interest
+// multiplier is grounded in marginal-rent intuition (a 4th airport doubles
+// the rent ladder; a 2nd utility unlocks 10× rent; a city that completes a
+// set is far more valuable than the same city standing alone).
+function computeThreatForTile(
+  block: Block,
+  opponents: Participant[],
+  blocks: Block[],
+): { ceiling: number; opponentId: string | null } {
   let ceiling = 0;
   let opponentId: string | null = null;
   for (const o of opponents) {
-    const cap = Math.floor(o.money * THREAT_FRACTION);
+    const interest = opponentInterest(o, block, blocks);
+    const cap = Math.floor(o.money * THREAT_FRACTION * interest);
     if (cap > ceiling) {
       ceiling = cap;
       opponentId = o.id;
     }
   }
   return { ceiling, opponentId };
+}
+
+function opponentInterest(
+  o: Participant,
+  block: Block,
+  blocks: Block[],
+): number {
+  if (block.type === 'city') {
+    const setCities = collectCityGroup(blocks, block.countryId);
+    const setSize = setCities.length;
+    if (setSize < 2) return 1.0;
+    const ownedInSet = setCities.filter((c) => c.block.ownerId === o.id).length;
+    if (ownedInSet + 1 === setSize) return 2.5;          // they'd complete the monopoly
+    if (ownedInSet + 1 === setSize - 1 && setSize >= 3) return 1.5; // one-away after
+    if (ownedInSet > 0) return 1.3;                       // foothold in the set
+    return 1.0;                                           // baseline
+  }
+  if (block.type === 'airport') {
+    const owned = countOwnedAirports(blocks, o.id);
+    // Each additional airport roughly doubles the rent the owner collects on
+    // their existing airports, so a 4th airport for a 3-airport opponent is
+    // proportionally far more valuable than a 1st for a 0-airport opponent.
+    const ladder = [1.0, 1.3, 1.7, 2.2];
+    return ladder[owned] ?? 1.0;
+  }
+  if (block.type === 'company') {
+    const owned = countOwnedCompanies(blocks, o.id);
+    return owned === 1 ? 2.0 : 1.0;                       // 2nd utility unlocks 10× rent
+  }
+  return 1.0;
 }
 
 // Tolerant of shapes we haven't pinned down: richup's `auction.bids` could be a
@@ -446,7 +505,10 @@ function evaluateSetContext(input: {
       state.settings,
     );
     setUplift = Math.max(0, rentAfter - rentBefore);
-  } else if (setSize >= 3 && selfOwnedAfter === setSize - 1) {
+  } else if (setSize >= 2 && selfOwnedAfter === setSize - 1) {
+    // For a 2-city set this means owning 1/2 — semantically one trade away
+    // from the monopoly, so it should get the same uplift treatment as the
+    // 3+ case rather than buckiting as a true singleton.
     bucket = 'one-away-after';
   } else if (selfOwnedAfter === 1 && setSize >= 2) {
     bucket = 'singleton';
