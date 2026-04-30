@@ -20,6 +20,14 @@ export class PlayersView implements InfoMenuView {
   private activePlayerId: string | null = null;
   private pinnedPlayerId: string | null = null;
   private context: ViewContext | null = null;
+  // Per-player lap tracking. The host doesn't expose a "passed Go" counter,
+  // so we infer laps from position deltas across state pushes: a position
+  // wrap (new < prev) means the player crossed Go. The go-to-prison teleport
+  // (prev=goToPrisonBlockIndex → new=prisonBlockIndex) is excluded; other
+  // teleports (surprise/bonus cards moving you backward) may still produce
+  // false positives — best-effort heuristic.
+  private prevPositions = new Map<string, number>();
+  private laps = new Map<string, number>();
 
   constructor() {
     this.chipsEl = document.createElement('div');
@@ -29,6 +37,27 @@ export class PlayersView implements InfoMenuView {
 
   attach(context: ViewContext): void {
     this.context = context;
+  }
+
+  observeState(state: RootStoreState | null): void {
+    const inner = state?.state;
+    if (!inner) return;
+    // Lobby positions are all 0; only count laps once a game is underway.
+    if (inner.phase !== 'playing' && inner.phase !== 'ended') return;
+    const goToPrison = inner.boardConfig?.goToPrisonBlockIndex ?? 30;
+    const prison = inner.boardConfig?.prisonBlockIndex ?? 10;
+    for (const p of inner.participants) {
+      if (p.bankruptedAt !== null) continue;
+      const prev = this.prevPositions.get(p.id);
+      this.prevPositions.set(p.id, p.position);
+      if (prev === undefined || prev === p.position) continue;
+      const wrapped = p.position < prev;
+      const goToPrisonRedirect =
+        prev === goToPrison && p.position === prison;
+      if (wrapped && !goToPrisonRedirect) {
+        this.laps.set(p.id, (this.laps.get(p.id) ?? 0) + 1);
+      }
+    }
   }
 
   renderSubHeader(state: RootStoreState | null): HTMLElement | null {
@@ -43,6 +72,8 @@ export class PlayersView implements InfoMenuView {
     for (const entry of this.chips.values()) entry.el.remove();
     this.chips.clear();
     this.activePlayerId = null;
+    this.prevPositions.clear();
+    this.laps.clear();
     // Broadcast unpin so LandingChipsOverlay drops its copy in lockstep — its
     // own resetSession runs too, but explicit decoupled signaling is safer than
     // relying on call ordering across overlays.
@@ -195,7 +226,9 @@ export class PlayersView implements InfoMenuView {
     const rank = this.computeRank(stats?.leaderboard, participant.id);
     const turn = stats?.turnsCount ?? 0;
     const trades = stats?.tradesCount ?? 0;
+    const laps = this.laps.get(participant.id) ?? 0;
 
+    section.appendChild(this.row('Laps', String(laps)));
     section.appendChild(this.row('Prison visits', String(prison)));
     section.appendChild(
       this.row('Leaderboard', rank > 0 ? `#${rank}` : '—'),

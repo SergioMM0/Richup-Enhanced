@@ -8,6 +8,10 @@ export interface InfoMenuView {
   readonly id: string;
   readonly label: string;
   attach?(context: ViewContext): void;
+  // Fires on every state push regardless of which view is active. Use for
+  // background bookkeeping that must not miss updates while the user is on
+  // another tab (e.g. PlayersView's lap counter watches position deltas).
+  observeState?(state: RootStoreState | null): void;
   renderSubHeader?(state: RootStoreState | null): HTMLElement | null;
   renderBody(state: RootStoreState | null): HTMLElement;
   resetSession?(): void;

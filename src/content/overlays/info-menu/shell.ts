@@ -172,6 +172,9 @@ export class InfoMenuOverlay {
 
   update(state: RootStoreState | null): void {
     this.lastState = state;
+    for (const entry of this.views.values()) {
+      entry.view.observeState?.(state);
+    }
     this.renderActiveView();
   }
 
