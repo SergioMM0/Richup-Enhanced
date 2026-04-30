@@ -5,7 +5,6 @@ import type {
   CompanyBlock,
   Participant,
   RootStoreState,
-  RUESettings,
 } from '@shared/types';
 import {
   evaluateAuction,
@@ -41,10 +40,6 @@ export class AuctionView implements InfoMenuView {
       this.timerId = null;
     }
     this.ctx = null;
-  }
-
-  isEnabled(settings: RUESettings): boolean {
-    return settings.showAuctionAdvisor;
   }
 
   renderBody(state: RootStoreState | null): HTMLElement {

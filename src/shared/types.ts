@@ -181,12 +181,8 @@ export interface ZustandStore {
 
 export interface RUESettings {
   overlaysEnabled: boolean;
-  showROIBadge: boolean;
-  showRentInfo: boolean;
-  showOwnerHighlight: boolean;
   showInfoMenu: boolean;
   showLandingChips: boolean;
   showLandingChipsForCurrentTurn: boolean;
-  showAuctionAdvisor: boolean;
   overlayOpacity: number;
 }

@@ -4,13 +4,9 @@ export const SETTINGS_KEY = 'rue:settings:v1';
 
 export const DEFAULT_SETTINGS: RUESettings = {
   overlaysEnabled: true,
-  showROIBadge: true,
-  showRentInfo: true,
-  showOwnerHighlight: true,
   showInfoMenu: true,
   showLandingChips: true,
   showLandingChipsForCurrentTurn: false,
-  showAuctionAdvisor: true,
   overlayOpacity: 0.85,
 };
 
