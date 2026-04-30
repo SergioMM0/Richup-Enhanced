@@ -13,7 +13,7 @@ interface ChipEntry {
 
 export class PlayersView implements InfoMenuView {
   readonly id = 'players';
-  readonly label = 'Players';
+  readonly label = 'Finances';
 
   private chipsEl: HTMLDivElement;
   private chips = new Map<string, ChipEntry>();
