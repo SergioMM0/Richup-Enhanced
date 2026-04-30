@@ -223,29 +223,13 @@ export class PlayersView implements InfoMenuView {
     section.appendChild(this.sectionTitle('Stats'));
 
     const prison = stats?.prisonVisits?.[participant.id] ?? 0;
-    const rank = this.computeRank(stats?.leaderboard, participant.id);
     const turn = stats?.turnsCount ?? 0;
-    const trades = stats?.tradesCount ?? 0;
     const laps = this.laps.get(participant.id) ?? 0;
 
     section.appendChild(this.row('Laps', String(laps)));
     section.appendChild(this.row('Prison visits', String(prison)));
-    section.appendChild(
-      this.row('Leaderboard', rank > 0 ? `#${rank}` : '—'),
-    );
     section.appendChild(this.row('Game turn', String(turn)));
-    section.appendChild(this.row('Trades (game)', String(trades)));
     return section;
-  }
-
-  private computeRank(
-    leaderboard: Record<string, number> | undefined,
-    playerId: string,
-  ): number {
-    if (!leaderboard) return 0;
-    const entries = Object.entries(leaderboard).sort((a, b) => b[1] - a[1]);
-    const idx = entries.findIndex(([id]) => id === playerId);
-    return idx >= 0 ? idx + 1 : 0;
   }
 
   private sectionTitle(text: string): HTMLElement {
