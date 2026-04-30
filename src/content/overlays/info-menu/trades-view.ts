@@ -12,7 +12,7 @@ import {
   type TradeKind,
   type TradeOpportunity,
 } from '../../analytics/trades';
-import type { InfoMenuView } from './types';
+import type { InfoMenuView, ViewContext } from './types';
 
 const KIND_BADGE: Record<TradeKind, string> = {
   'mutual-swap': '⇄', // ⇄
@@ -22,9 +22,44 @@ const KIND_BADGE: Record<TradeKind, string> = {
   'airport': '✈',      // ✈
 };
 
+interface ChipEntry {
+  wrap: HTMLDivElement;
+  el: HTMLButtonElement;
+  participant: Participant;
+}
+
 export class TradesView implements InfoMenuView {
   readonly id = 'trades';
   readonly label = 'Trades';
+
+  private chipsEl: HTMLDivElement;
+  private chips = new Map<string, ChipEntry>();
+  private activePerspectiveId: string | null = null;
+  private context: ViewContext | null = null;
+
+  constructor() {
+    this.chipsEl = document.createElement('div');
+    this.chipsEl.className = 'info-menu__chips';
+    this.chipsEl.setAttribute('role', 'tablist');
+  }
+
+  attach(context: ViewContext): void {
+    this.context = context;
+  }
+
+  resetSession(): void {
+    for (const entry of this.chips.values()) entry.wrap.remove();
+    this.chips.clear();
+    this.activePerspectiveId = null;
+  }
+
+  renderSubHeader(state: RootStoreState | null): HTMLElement | null {
+    const participants = state?.state?.participants ?? [];
+    const active = participants.filter((p) => p.bankruptedAt === null);
+    this.ensureActivePerspective(active, state?.selfParticipantId ?? '');
+    this.reconcileChips(active);
+    return this.chipsEl;
+  }
 
   renderBody(state: RootStoreState | null): HTMLElement {
     if (!state) return this.emptyMessage('Waiting for game state…');
@@ -32,33 +67,93 @@ export class TradesView implements InfoMenuView {
     const participants = state.state?.participants ?? [];
     const blocks = state.state?.blocks ?? [];
     const settings = state.state?.settings;
-    const self = participants.find((p) => p.id === selfId);
-    if (!self) return this.emptyMessage('Self participant not found');
     if (!settings) return this.emptyMessage('Waiting for game state…');
 
+    const activeId = this.activePerspectiveId ?? selfId;
+    const perspective = participants.find((p) => p.id === activeId);
+    if (!perspective) return this.emptyMessage('No active players');
+
     const opportunities = findTradeOpportunities({
-      selfId,
+      selfId: perspective.id,
       participants,
       blocks,
       settings,
-      selfMoney: self.money,
+      selfMoney: perspective.money,
     });
 
     if (opportunities.length === 0) {
       return this.emptyMessage('No trade opportunities right now');
     }
 
+    const isSelf = perspective.id === selfId;
     const container = document.createElement('div');
     for (const o of opportunities) {
-      container.appendChild(this.renderCard(o, participants, blocks));
+      container.appendChild(
+        this.renderCard(o, participants, blocks, perspective, isSelf),
+      );
     }
     return container;
+  }
+
+  private ensureActivePerspective(
+    active: Participant[],
+    selfId: string,
+  ): void {
+    const stillActive = this.activePerspectiveId
+      ? active.some((p) => p.id === this.activePerspectiveId)
+      : false;
+    if (stillActive) return;
+    const fallback = active[0];
+    if (!fallback) return;
+    const self = active.find((p) => p.id === selfId);
+    this.activePerspectiveId = (self ?? fallback).id;
+  }
+
+  private reconcileChips(active: Participant[]): void {
+    const seen = new Set<string>();
+    for (const p of active) {
+      seen.add(p.id);
+      let entry = this.chips.get(p.id);
+      if (!entry) {
+        const wrap = document.createElement('div');
+        wrap.className = 'info-menu__chip-wrap';
+
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'info-menu__chip';
+        el.setAttribute('role', 'tab');
+        el.addEventListener('click', () => {
+          this.activePerspectiveId = p.id;
+          this.context?.requestUpdate();
+        });
+
+        wrap.appendChild(el);
+        this.chipsEl.appendChild(wrap);
+        entry = { wrap, el, participant: p };
+        this.chips.set(p.id, entry);
+      }
+      entry.participant = p;
+      entry.wrap.style.setProperty('--tab-color', p.appearance);
+      entry.el.style.setProperty('--tab-color', p.appearance);
+      entry.el.textContent = p.name;
+      entry.el.title = p.name;
+      const isActive = p.id === this.activePerspectiveId;
+      entry.el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    }
+    for (const id of [...this.chips.keys()]) {
+      if (!seen.has(id)) {
+        this.chips.get(id)?.wrap.remove();
+        this.chips.delete(id);
+      }
+    }
   }
 
   private renderCard(
     opp: TradeOpportunity,
     participants: Participant[],
     blocks: Block[],
+    perspective: Participant,
+    isSelf: boolean,
   ): HTMLElement {
     const partner = participants.find((p) => p.id === opp.partnerId);
     const card = document.createElement('section');
@@ -67,7 +162,7 @@ export class TradesView implements InfoMenuView {
 
     card.appendChild(this.renderHeader(opp, partner));
 
-    const summary = this.summaryFor(opp, blocks);
+    const summary = this.summaryFor(opp, blocks, perspective, isSelf);
     if (summary) {
       const el = document.createElement('div');
       el.className = 'info-menu__rank-summary';
@@ -75,7 +170,7 @@ export class TradesView implements InfoMenuView {
       card.appendChild(el);
     }
 
-    card.appendChild(this.rentRow(opp));
+    card.appendChild(this.rentRow(opp, perspective, isSelf));
 
     for (const idx of opp.wantedBlockIndexes) {
       card.appendChild(this.row('Get', this.blockLabel(blocks[idx])));
@@ -157,7 +252,12 @@ export class TradesView implements InfoMenuView {
     }
   }
 
-  private summaryFor(opp: TradeOpportunity, blocks: Block[]): string | null {
+  private summaryFor(
+    opp: TradeOpportunity,
+    blocks: Block[],
+    perspective: Participant,
+    isSelf: boolean,
+  ): string | null {
     switch (opp.kind) {
       case 'mutual-swap': {
         const give = opp.offerBlockIndexes.length;
@@ -168,9 +268,21 @@ export class TradesView implements InfoMenuView {
         return `Both gain monopolies — ${give} for ${get}`;
       }
       case 'one-away':
-        return this.setSummary(opp.wantedBlockIndexes[0], opp.setSize, blocks);
+        return this.setSummary(
+          opp.wantedBlockIndexes[0],
+          opp.setSize,
+          blocks,
+          perspective,
+          isSelf,
+        );
       case 'two-away':
-        return this.setSummary(opp.wantedBlockIndexes[0], opp.setSize, blocks);
+        return this.setSummary(
+          opp.wantedBlockIndexes[0],
+          opp.setSize,
+          blocks,
+          perspective,
+          isSelf,
+        );
       case 'singleton-offer': {
         const idx = opp.offerBlockIndexes[0];
         const block = idx !== undefined ? blocks[idx] : undefined;
@@ -189,18 +301,33 @@ export class TradesView implements InfoMenuView {
     wantedIndex: number | undefined,
     setSize: number,
     blocks: Block[],
+    perspective: Participant,
+    isSelf: boolean,
   ): string | null {
     if (wantedIndex === undefined) return null;
     const block = blocks[wantedIndex];
     if (block?.type !== 'city') return null;
     const owned = setSize - 1;
-    return `Completes a ${setSize}-city set (you own ${owned}/${setSize})`;
+    const ownership = isSelf
+      ? `you own ${owned}/${setSize}`
+      : `${perspective.name} owns ${owned}/${setSize}`;
+    return `Completes a ${setSize}-city set (${ownership})`;
   }
 
-  private rentRow(opp: TradeOpportunity): HTMLElement {
+  private rentRow(
+    opp: TradeOpportunity,
+    perspective: Participant,
+    isSelf: boolean,
+  ): HTMLElement {
     const text = `${formatMoney(opp.rentBefore)} → ${formatMoney(opp.rentAfter)}`;
-    const label =
-      opp.kind === 'singleton-offer' ? 'Their rent uplift' : 'Your rent uplift';
+    let label: string;
+    if (opp.kind === 'singleton-offer') {
+      label = 'Their rent uplift';
+    } else if (isSelf) {
+      label = 'Your rent uplift';
+    } else {
+      label = `${perspective.name}'s rent uplift`;
+    }
     return this.row(label, text);
   }
 
