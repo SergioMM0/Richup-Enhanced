@@ -16,12 +16,27 @@ import type { InfoMenuView, ViewContext } from './types';
 
 const TICK_INTERVAL_MS = 1000;
 
+interface ChipEntry {
+  wrap: HTMLDivElement;
+  el: HTMLButtonElement;
+  participant: Participant;
+}
+
 export class AuctionView implements InfoMenuView {
   readonly id = 'auction';
   readonly label = 'Auction';
 
   private ctx: ViewContext | null = null;
   private timerId: number | null = null;
+  private chipsEl: HTMLDivElement;
+  private chips = new Map<string, ChipEntry>();
+  private activePerspectiveId: string | null = null;
+
+  constructor() {
+    this.chipsEl = document.createElement('div');
+    this.chipsEl.className = 'info-menu__chips';
+    this.chipsEl.setAttribute('role', 'tablist');
+  }
 
   attach(ctx: ViewContext): void {
     this.ctx = ctx;
@@ -34,11 +49,20 @@ export class AuctionView implements InfoMenuView {
     }, TICK_INTERVAL_MS);
   }
 
+  resetSession(): void {
+    for (const entry of this.chips.values()) entry.wrap.remove();
+    this.chips.clear();
+    this.activePerspectiveId = null;
+  }
+
   destroy(): void {
     if (this.timerId !== null) {
       clearInterval(this.timerId);
       this.timerId = null;
     }
+    for (const entry of this.chips.values()) entry.wrap.remove();
+    this.chips.clear();
+    this.activePerspectiveId = null;
     this.ctx = null;
   }
 
@@ -52,13 +76,14 @@ export class AuctionView implements InfoMenuView {
     // throw inside the analytics module surfaces a useful message instead of
     // bubbling up and leaving shell.body.replaceChildren never called (which
     // strands the body on whatever it rendered before the auction started).
+    const focalId = this.activePerspectiveId ?? state.selfParticipantId;
     let advice: AuctionAdvice | null;
     try {
-      advice = evaluateAuction(inner, state.selfParticipantId);
+      advice = evaluateAuction(inner, focalId);
     } catch (err) {
       console.error('[RUE] auction advisor crashed', err, {
         auction: inner.auction,
-        selfId: state.selfParticipantId,
+        selfId: focalId,
       });
       return this.emptyMessage('Advisor crashed — check the console for details');
     }
@@ -148,28 +173,97 @@ export class AuctionView implements InfoMenuView {
   }
 
   renderSubHeader(state: RootStoreState | null): HTMLElement | null {
-    const auction = state?.state?.auction;
-    if (!auction) return null;
-    const block = state?.state?.blocks?.[auction.blockIndex];
-    if (!block) return null;
+    const participants = Array.isArray(state?.state?.participants)
+      ? state!.state!.participants
+      : [];
+    const active = participants.filter((p) => p.bankruptedAt === null);
+    if (active.length === 0) return null;
 
-    const sub = document.createElement('div');
-    sub.className = 'rue-auction-subheader';
-    const label = document.createElement('span');
-    label.className = 'rue-auction-subheader__label';
-    label.textContent = 'Auction:';
-    const tile = document.createElement('span');
-    tile.className = 'rue-auction-subheader__tile';
-    tile.textContent = this.tileLabel(block);
-    const price = document.createElement('span');
-    price.className = 'rue-auction-subheader__price';
-    const listPrice = (block as { price?: number }).price;
-    price.textContent =
-      typeof listPrice === 'number' ? `list ${formatMoney(listPrice)}` : '';
-    sub.appendChild(label);
-    sub.appendChild(tile);
-    if (price.textContent) sub.appendChild(price);
-    return sub;
+    this.ensureActivePerspective(active, state?.selfParticipantId ?? '');
+    this.reconcileChips(active);
+
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
+    wrapper.style.gap = '4px';
+
+    const auction = state?.state?.auction;
+    const block = auction ? state?.state?.blocks?.[auction.blockIndex] : null;
+    if (auction && block) {
+      const sub = document.createElement('div');
+      sub.className = 'rue-auction-subheader';
+      const label = document.createElement('span');
+      label.className = 'rue-auction-subheader__label';
+      label.textContent = 'Auction:';
+      const tile = document.createElement('span');
+      tile.className = 'rue-auction-subheader__tile';
+      tile.textContent = this.tileLabel(block);
+      const price = document.createElement('span');
+      price.className = 'rue-auction-subheader__price';
+      const listPrice = (block as { price?: number }).price;
+      price.textContent =
+        typeof listPrice === 'number' ? `list ${formatMoney(listPrice)}` : '';
+      sub.appendChild(label);
+      sub.appendChild(tile);
+      if (price.textContent) sub.appendChild(price);
+      wrapper.appendChild(sub);
+    }
+
+    wrapper.appendChild(this.chipsEl);
+    return wrapper;
+  }
+
+  private ensureActivePerspective(
+    active: Participant[],
+    selfId: string,
+  ): void {
+    const stillActive = this.activePerspectiveId
+      ? active.some((p) => p.id === this.activePerspectiveId)
+      : false;
+    if (stillActive) return;
+    const fallback = active[0];
+    if (!fallback) return;
+    const self = active.find((p) => p.id === selfId);
+    this.activePerspectiveId = (self ?? fallback).id;
+  }
+
+  private reconcileChips(active: Participant[]): void {
+    const seen = new Set<string>();
+    for (const p of active) {
+      seen.add(p.id);
+      let entry = this.chips.get(p.id);
+      if (!entry) {
+        const wrap = document.createElement('div');
+        wrap.className = 'info-menu__chip-wrap';
+
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'info-menu__chip';
+        el.setAttribute('role', 'tab');
+        el.addEventListener('click', () => {
+          this.activePerspectiveId = p.id;
+          this.ctx?.requestUpdate();
+        });
+
+        wrap.appendChild(el);
+        this.chipsEl.appendChild(wrap);
+        entry = { wrap, el, participant: p };
+        this.chips.set(p.id, entry);
+      }
+      entry.participant = p;
+      entry.wrap.style.setProperty('--tab-color', p.appearance);
+      entry.el.style.setProperty('--tab-color', p.appearance);
+      entry.el.textContent = p.name;
+      entry.el.title = p.name;
+      const isActive = p.id === this.activePerspectiveId;
+      entry.el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    }
+    for (const id of [...this.chips.keys()]) {
+      if (!seen.has(id)) {
+        this.chips.get(id)?.wrap.remove();
+        this.chips.delete(id);
+      }
+    }
   }
 
   // Header row — big bold name + max bid as the "total".
