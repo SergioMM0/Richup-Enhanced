@@ -7,9 +7,7 @@ import { calcParticipantNetWorth, formatMoney } from '../../analytics/player';
 import type { InfoMenuView, ViewContext } from './types';
 
 interface ChipEntry {
-  wrap: HTMLDivElement;
   el: HTMLButtonElement;
-  pinEl: HTMLButtonElement;
   participant: Participant;
 }
 
@@ -42,7 +40,7 @@ export class PlayersView implements InfoMenuView {
   }
 
   resetSession(): void {
-    for (const entry of this.chips.values()) entry.wrap.remove();
+    for (const entry of this.chips.values()) entry.el.remove();
     this.chips.clear();
     this.activePlayerId = null;
     // Broadcast unpin so LandingChipsOverlay drops its copy in lockstep — its
@@ -70,7 +68,26 @@ export class PlayersView implements InfoMenuView {
     container.style.setProperty('--tab-color', participant.appearance);
     container.appendChild(this.renderMoneySection(participant, blocks));
     container.appendChild(this.renderStatsSection(participant, stats));
+    container.appendChild(this.renderPinButton(participant));
     return container;
+  }
+
+  private renderPinButton(participant: Participant): HTMLElement {
+    const isPinned = participant.id === this.pinnedPlayerId;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'info-menu__pin-toggle';
+    btn.setAttribute('aria-pressed', isPinned ? 'true' : 'false');
+    btn.title = isPinned
+      ? 'Unpin landing chips from the board'
+      : 'Pin landing chips on the board';
+    btn.textContent = isPinned
+      ? `\u{1F4CC} Unpin landing chips`
+      : `\u{1F4CC} Pin landing chips`;
+    btn.addEventListener('click', () => {
+      this.togglePin(participant.id);
+    });
+    return btn;
   }
 
   private ensureActivePlayer(active: Participant[], selfId: string): void {
@@ -93,48 +110,28 @@ export class PlayersView implements InfoMenuView {
       seen.add(p.id);
       let entry = this.chips.get(p.id);
       if (!entry) {
-        const wrap = document.createElement('div');
-        wrap.className = 'info-menu__chip-wrap';
-        // The hover handler in LandingChipsOverlay matches via
-        // closest('[data-participant-id]'), so the wrapper carries the id —
-        // hovering either the main chip or the pin button still triggers it.
-        wrap.dataset.participantId = p.id;
-
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'info-menu__chip';
         el.setAttribute('role', 'tab');
+        // The hover handler in LandingChipsOverlay matches via
+        // closest('[data-participant-id]'), so the chip carries the id.
+        el.dataset.participantId = p.id;
         el.addEventListener('click', () => {
           this.activePlayerId = p.id;
           this.context?.requestUpdate();
         });
 
-        const pinEl = document.createElement('button');
-        pinEl.type = 'button';
-        pinEl.className = 'info-menu__chip-pin';
-        pinEl.setAttribute('aria-label', 'Pin landing chips');
-        pinEl.title = 'Pin landing chips on the board';
-        pinEl.textContent = '\u{1F4CC}';
-        pinEl.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          this.togglePin(p.id);
-        });
-
-        wrap.appendChild(el);
-        wrap.appendChild(pinEl);
-        this.chipsEl.appendChild(wrap);
-        entry = { wrap, el, pinEl, participant: p };
+        this.chipsEl.appendChild(el);
+        entry = { el, participant: p };
         this.chips.set(p.id, entry);
       }
       entry.participant = p;
-      entry.wrap.style.setProperty('--tab-color', p.appearance);
       entry.el.style.setProperty('--tab-color', p.appearance);
       entry.el.textContent = p.name;
       entry.el.title = p.name;
       const isActive = p.id === this.activePlayerId;
       entry.el.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      const isPinned = p.id === this.pinnedPlayerId;
-      entry.pinEl.setAttribute('aria-pressed', isPinned ? 'true' : 'false');
     }
     for (const id of [...this.chips.keys()]) {
       if (!seen.has(id)) {
@@ -144,7 +141,7 @@ export class PlayersView implements InfoMenuView {
           this.pinnedPlayerId = null;
           this.dispatchPin(null);
         }
-        this.chips.get(id)?.wrap.remove();
+        this.chips.get(id)?.el.remove();
         this.chips.delete(id);
       }
     }

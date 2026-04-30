@@ -121,12 +121,8 @@ export const INFO_MENU_CSS = `
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
   }
-  .info-menu__chip-wrap {
-    position: relative;
-    flex: 0 0 auto;
-    display: inline-flex;
-  }
   .info-menu__chip {
+    flex: 0 0 auto;
     appearance: none;
     background: color-mix(in srgb, var(--tab-color, #888) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--tab-color, #888) 35%, transparent);
@@ -136,7 +132,7 @@ export const INFO_MENU_CSS = `
     font: inherit;
     font-size: 12px;
     font-weight: 600;
-    padding: 5px 18px 5px 9px;
+    padding: 5px 9px;
     max-width: 110px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -151,39 +147,34 @@ export const INFO_MENU_CSS = `
     background: color-mix(in srgb, var(--tab-color, #888) 35%, transparent);
     border-bottom-color: var(--tab-color, #888);
   }
-  .info-menu__chip-pin {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    width: 18px;
-    height: 18px;
-    appearance: none;
-    background: rgba(20, 20, 28, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 50%;
-    color: #f5f5f7;
-    font-size: 10px;
-    line-height: 1;
-    padding: 0;
-    cursor: pointer;
-    opacity: 0.55;
+  .info-menu__pin-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: opacity 100ms linear, background-color 100ms linear,
-      border-color 100ms linear, transform 100ms linear;
+    gap: 6px;
+    width: 100%;
+    margin-top: 4px;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: #f5f5f7;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: background-color 100ms linear, border-color 100ms linear;
   }
-  .info-menu__chip-wrap:hover .info-menu__chip-pin,
-  .info-menu__chip-pin:focus-visible {
-    opacity: 1;
+  .info-menu__pin-toggle:hover {
+    background: rgba(255, 255, 255, 0.12);
   }
-  .info-menu__chip-pin:hover {
-    transform: scale(1.08);
-  }
-  .info-menu__chip-pin[aria-pressed="true"] {
-    opacity: 1;
-    background: color-mix(in srgb, var(--tab-color, #888) 55%, rgba(20, 20, 28, 0.85));
+  .info-menu__pin-toggle[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--tab-color, #888) 35%, rgba(20, 20, 28, 0.85));
     border-color: var(--tab-color, #888);
+  }
+  .info-menu__pin-toggle[aria-pressed="true"]:hover {
+    background: color-mix(in srgb, var(--tab-color, #888) 45%, rgba(20, 20, 28, 0.85));
   }
   .info-menu__collapse {
     flex-shrink: 0;
