@@ -79,11 +79,11 @@ export class PlayersView implements InfoMenuView {
     btn.className = 'info-menu__pin-toggle';
     btn.setAttribute('aria-pressed', isPinned ? 'true' : 'false');
     btn.title = isPinned
-      ? 'Unpin landing chips from the board'
-      : 'Pin landing chips on the board';
+      ? 'Unpin landing prediction'
+      : 'Pin landing prediction';
     btn.textContent = isPinned
-      ? `\u{1F4CC} Unpin landing chips`
-      : `\u{1F4CC} Pin landing chips`;
+      ? `\u{1F4CC} Unpin landing prediction`
+      : `\u{1F4CC} Pin landing prediction`;
     btn.addEventListener('click', () => {
       this.togglePin(participant.id);
     });
