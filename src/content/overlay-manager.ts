@@ -6,6 +6,7 @@ import {
   LANDING_CHIPS_CSS,
   LandingChipsOverlay,
 } from './overlays/landing-chips';
+import { SpaceRollHandler } from './space-roll';
 
 // Identifies a single game instance within a room. Combines room id with the
 // game's startedAt timestamp so that two consecutive games in the same room
@@ -56,6 +57,7 @@ export class OverlayManager {
   private rootEl: HTMLDivElement | null = null;
   private infoMenu: InfoMenuOverlay | null = null;
   private landingChips: LandingChipsOverlay | null = null;
+  private spaceRoll: SpaceRollHandler | null = null;
   private unsubscribeStore: (() => void) | null = null;
   private unsubscribeReplaced: (() => void) | null = null;
   private currentSessionKey: string | null = null;
@@ -75,6 +77,9 @@ export class OverlayManager {
 
     this.landingChips = new LandingChipsOverlay(this.source, this.settings);
     this.landingChips.mount(this.rootEl);
+
+    this.spaceRoll = new SpaceRollHandler(this.source, this.settings);
+    this.spaceRoll.attach();
 
     const initialState = this.source.getState();
     // Seed the session key from the first snapshot so the first subscribe push
@@ -111,6 +116,8 @@ export class OverlayManager {
     this.infoMenu = null;
     this.landingChips?.destroy();
     this.landingChips = null;
+    this.spaceRoll?.detach();
+    this.spaceRoll = null;
     this.host?.remove();
     this.host = null;
     this.rootEl = null;
@@ -145,6 +152,7 @@ export class OverlayManager {
     this.settings = settings;
     this.infoMenu?.applySettings(settings);
     this.landingChips?.applySettings(settings);
+    this.spaceRoll?.applySettings(settings);
   }
 
   private mountShadow(): void {
