@@ -12,10 +12,7 @@ import type { InfoMenuView } from './types';
 
 const MAX_VISIBLE_RESOLVED = 50;
 
-export interface ResolvedTrade {
-  trade: Trade;
-  outcome: 'accepted' | 'declined';
-}
+export type ResolutionKind = 'accepted' | 'declined' | 'counter-offered';
 
 interface ResolvedEntry {
   trade: Trade;
@@ -32,34 +29,75 @@ interface ParticipantSnapshot {
   color: string;
 }
 
-// Pure diff between two trade snapshots. Trades that disappeared from the
-// current snapshot are reported as resolved. Acceptance is inferred from the
-// delta in stats.tradesCount on the same tick — the host increments that
-// counter on accept, not on decline/cancel. When multiple trades resolve in
-// the same tick we can't attribute the delta to specific ids, so we burn the
-// budget greedily across the resolved list (first N marked accepted, rest
-// declined). prevCount === null means this is our first observation so we
-// can't credit anything yet — everything resolved on this tick is declined.
-export function diffTrades(args: {
-  prev: Map<string, Trade>;
-  currentIds: Set<string>;
-  prevCount: number | null;
-  currentCount: number;
-}): ResolvedTrade[] {
-  const resolved: Trade[] = [];
-  for (const [id, trade] of args.prev) {
-    if (!args.currentIds.has(id)) resolved.push(trade);
+// Trades that left the active list since the previous snapshot.
+export function findDisappearedTrades(
+  prev: Map<string, Trade>,
+  currentIds: Set<string>,
+): Trade[] {
+  const out: Trade[] = [];
+  for (const [id, trade] of prev) {
+    if (!currentIds.has(id)) out.push(trade);
   }
-  if (resolved.length === 0) return [];
-  let acceptedBudget =
-    args.prevCount === null
-      ? 0
-      : Math.max(0, args.currentCount - args.prevCount);
-  return resolved.map((trade) => {
-    const accepted = acceptedBudget > 0;
-    if (accepted) acceptedBudget--;
-    return { trade, outcome: accepted ? 'accepted' : 'declined' };
-  });
+  return out;
+}
+
+// Classify a disappeared trade. richup represents every counter-offer as a
+// brand-new trade id (the old one is discarded), so the disappearance alone
+// doesn't mean the trade was actually accepted or declined — it may just have
+// been edited. stats.tradesCount increments on creation too, so we can't use
+// it. Instead:
+//   1. If another trade between the same pair (in either direction) exists in
+//      the current snapshot, this was a counter-offer — skip it.
+//   2. Else, look for a property ownership flip matching the trade: an
+//      initiator-offered property that's now owned by the recipient, or vice
+//      versa. richup applies the swap atomically on accept, so the new owner
+//      appears on the same tick the trade leaves the list.
+//   3. Otherwise, the trade was declined or cancelled.
+// Pure-money trades (no properties on either side) can't be reliably
+// distinguished from declines via state alone and fall through to 'declined'.
+export function inferResolution(
+  trade: Trade,
+  currentTrades: Trade[],
+  prevOwners: Map<number, string | null>,
+  currentBlocks: Block[],
+): ResolutionKind {
+  for (const t of currentTrades) {
+    if (t.id === trade.id) continue;
+    const samePair =
+      (t.initiatorId === trade.initiatorId &&
+        t.recipientId === trade.recipientId) ||
+      (t.initiatorId === trade.recipientId &&
+        t.recipientId === trade.initiatorId);
+    if (samePair) return 'counter-offered';
+  }
+
+  const initiatorProps = trade.initiatorOffer?.propertyIndices ?? [];
+  for (const idx of initiatorProps) {
+    const prevOwner = prevOwners.get(idx);
+    const cur = currentBlocks[idx];
+    if (
+      cur &&
+      'ownerId' in cur &&
+      prevOwner === trade.initiatorId &&
+      cur.ownerId === trade.recipientId
+    ) {
+      return 'accepted';
+    }
+  }
+  const recipientProps = trade.recipientOffer?.propertyIndices ?? [];
+  for (const idx of recipientProps) {
+    const prevOwner = prevOwners.get(idx);
+    const cur = currentBlocks[idx];
+    if (
+      cur &&
+      'ownerId' in cur &&
+      prevOwner === trade.recipientId &&
+      cur.ownerId === trade.initiatorId
+    ) {
+      return 'accepted';
+    }
+  }
+  return 'declined';
 }
 
 export class HistoryView implements InfoMenuView {
@@ -67,7 +105,7 @@ export class HistoryView implements InfoMenuView {
   readonly label = 'History';
 
   private prevTradeIds = new Map<string, Trade>();
-  private prevTradesCount: number | null = null;
+  private prevOwners = new Map<number, string | null>();
   private entries: ResolvedEntry[] = [];
   // Bankrupt players can stay in participants[] but their data may be stale
   // by the time we render a card for an old trade. Snapshot name/color on
@@ -81,34 +119,14 @@ export class HistoryView implements InfoMenuView {
     } catch (err) {
       console.error('[RUE] HistoryView.observeState crashed', err, {
         hasState: !!state,
-        tradesSample: state?.state?.trades,
       });
     }
   }
-
-  // One-time debug dump so we can see what the host's actual Trade shape is.
-  // Documented Trade { offer, request } turned out to be wrong at runtime —
-  // log the first non-empty sample so we can update the renderer.
-  private didDumpSample = false;
 
   private observeStateInner(state: RootStoreState | null): void {
     const inner = state?.state;
     if (!inner) return;
     if (inner.phase !== 'playing' && inner.phase !== 'ended') return;
-
-    if (
-      !this.didDumpSample &&
-      Array.isArray(inner.trades) &&
-      inner.trades.length > 0
-    ) {
-      this.didDumpSample = true;
-      const sample = inner.trades[0];
-      console.log('[RUE history] live trade sample', {
-        keys: sample ? Object.keys(sample) : [],
-        sample,
-        tradesCount: inner.stats?.tradesCount,
-      });
-    }
 
     if (Array.isArray(inner.participants)) {
       for (const p of inner.participants) {
@@ -121,26 +139,27 @@ export class HistoryView implements InfoMenuView {
 
     const currentTrades = Array.isArray(inner.trades) ? inner.trades : [];
     const currentIds = new Set(currentTrades.map((t) => t.id));
-    const currentCount = inner.stats?.tradesCount ?? 0;
+    const currentBlocks = Array.isArray(inner.blocks) ? inner.blocks : [];
 
-    const resolved = diffTrades({
-      prev: this.prevTradeIds,
-      currentIds,
-      prevCount: this.prevTradesCount,
-      currentCount,
-    });
-
-    if (resolved.length > 0) {
+    const disappeared = findDisappearedTrades(this.prevTradeIds, currentIds);
+    if (disappeared.length > 0) {
       const now = Date.now();
-      // Resolved are returned in iteration order; unshift in reverse so the
-      // earliest resolved on this tick ends up below the latest in the log.
-      for (let i = resolved.length - 1; i >= 0; i--) {
-        const r = resolved[i]!;
-        const initiator = this.participantSnapshot.get(r.trade.initiatorId);
-        const recipient = this.participantSnapshot.get(r.trade.recipientId);
+      // Latest disappearance ends up at the top of the log; iterate in reverse
+      // and unshift so the array order is newest-first.
+      for (let i = disappeared.length - 1; i >= 0; i--) {
+        const trade = disappeared[i]!;
+        const kind = inferResolution(
+          trade,
+          currentTrades,
+          this.prevOwners,
+          currentBlocks,
+        );
+        if (kind === 'counter-offered') continue;
+        const initiator = this.participantSnapshot.get(trade.initiatorId);
+        const recipient = this.participantSnapshot.get(trade.recipientId);
         this.entries.unshift({
-          trade: r.trade,
-          outcome: r.outcome,
+          trade,
+          outcome: kind,
           resolvedAt: now,
           initiatorName: initiator?.name ?? 'Unknown',
           initiatorColor: initiator?.color ?? '#888',
@@ -150,15 +169,20 @@ export class HistoryView implements InfoMenuView {
       }
     }
 
-    const next = new Map<string, Trade>();
-    for (const t of currentTrades) next.set(t.id, t);
-    this.prevTradeIds = next;
-    this.prevTradesCount = currentCount;
+    const nextTrades = new Map<string, Trade>();
+    for (const t of currentTrades) nextTrades.set(t.id, t);
+    this.prevTradeIds = nextTrades;
+
+    this.prevOwners.clear();
+    for (let i = 0; i < currentBlocks.length; i++) {
+      const b = currentBlocks[i];
+      this.prevOwners.set(i, b && 'ownerId' in b ? b.ownerId : null);
+    }
   }
 
   resetSession(): void {
     this.prevTradeIds.clear();
-    this.prevTradesCount = null;
+    this.prevOwners.clear();
     this.entries = [];
     this.participantSnapshot.clear();
   }
@@ -335,12 +359,25 @@ export class HistoryView implements InfoMenuView {
     blocks: Block[],
   ): void {
     const money = typeof side?.money === 'number' ? side.money : 0;
-    const indexes = Array.isArray(side?.blockIndexes) ? side.blockIndexes : [];
+    const indexes = Array.isArray(side?.propertyIndices)
+      ? side.propertyIndices
+      : [];
+    const mortgaged = new Set(
+      Array.isArray(side?.mortgagedPropertiesIndexes)
+        ? side.mortgagedPropertiesIndexes
+        : [],
+    );
     if (money > 0) card.appendChild(this.row('Cash', formatMoney(money)));
     for (const idx of indexes) {
-      card.appendChild(this.row('Property', this.blockLabel(blocks[idx])));
+      const label = this.blockLabel(blocks[idx]);
+      const suffix = mortgaged.has(idx) ? ' (mortgaged)' : '';
+      card.appendChild(this.row('Property', `${label}${suffix}`));
     }
-    if (money === 0 && indexes.length === 0) {
+    const pardons = Array.isArray(side?.pardonCards) ? side.pardonCards : [];
+    if (pardons.length > 0) {
+      card.appendChild(this.row('Pardon cards', String(pardons.length)));
+    }
+    if (money === 0 && indexes.length === 0 && pardons.length === 0) {
       card.appendChild(this.row('—', 'nothing'));
     }
   }

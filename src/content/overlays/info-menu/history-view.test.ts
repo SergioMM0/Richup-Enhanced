@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Trade } from '@shared/types';
-import { diffTrades } from './history-view';
+import type { Block, CityBlock, Trade } from '@shared/types';
+import { findDisappearedTrades, inferResolution } from './history-view';
 
 const makeTrade = (id: string, overrides: Partial<Trade> = {}): Trade => ({
   id,
@@ -10,8 +10,32 @@ const makeTrade = (id: string, overrides: Partial<Trade> = {}): Trade => ({
   negotiationCount: 0,
   watcherIds: [],
   note: null,
-  initiatorOffer: { money: 0, blockIndexes: [] },
-  recipientOffer: { money: 0, blockIndexes: [] },
+  initiatorOffer: {
+    money: 0,
+    propertyIndices: [],
+    mortgagedPropertiesIndexes: [],
+    pardonCards: [],
+  },
+  recipientOffer: {
+    money: 0,
+    propertyIndices: [],
+    mortgagedPropertiesIndexes: [],
+    pardonCards: [],
+  },
+  ...overrides,
+});
+
+const city = (overrides: Partial<CityBlock> = {}): CityBlock => ({
+  type: 'city',
+  name: 'Generic',
+  price: 200,
+  ownerId: null,
+  isMortgaged: false,
+  countryId: 'red',
+  rentPrices: { 0: 10, 1: 50, 2: 150, 3: 450, 4: 625, 5: 750 },
+  level: 0,
+  housePrice: 100,
+  hotelPrice: 100,
   ...overrides,
 });
 
@@ -21,100 +45,131 @@ const asPrev = (trades: Trade[]): Map<string, Trade> =>
 const idsOf = (trades: Trade[]): Set<string> =>
   new Set(trades.map((t) => t.id));
 
-describe('diffTrades', () => {
-  it('returns nothing when no trade ids disappeared', () => {
-    const t1 = makeTrade('t1');
-    const result = diffTrades({
-      prev: asPrev([t1]),
-      currentIds: idsOf([t1]),
-      prevCount: 0,
-      currentCount: 0,
-    });
-    expect(result).toEqual([]);
-  });
-
-  it('returns nothing on a fresh observation (prevCount null)', () => {
-    // No prev trades exist either — first tick, nothing to diff.
-    const result = diffTrades({
-      prev: asPrev([]),
-      currentIds: idsOf([makeTrade('t1')]),
-      prevCount: null,
-      currentCount: 0,
-    });
-    expect(result).toEqual([]);
-  });
-
-  it('labels a disappeared trade accepted when tradesCount increments', () => {
-    const t1 = makeTrade('t1');
-    const result = diffTrades({
-      prev: asPrev([t1]),
-      currentIds: idsOf([]),
-      prevCount: 3,
-      currentCount: 4,
-    });
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ trade: t1, outcome: 'accepted' });
-  });
-
-  it('labels a disappeared trade declined when tradesCount is unchanged', () => {
-    const t1 = makeTrade('t1');
-    const result = diffTrades({
-      prev: asPrev([t1]),
-      currentIds: idsOf([]),
-      prevCount: 3,
-      currentCount: 3,
-    });
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ trade: t1, outcome: 'declined' });
-  });
-
-  it('credits acceptance budget greedily when two trades resolve on the same tick', () => {
+describe('findDisappearedTrades', () => {
+  it('returns trades present in prev but not in currentIds', () => {
     const a = makeTrade('a');
     const b = makeTrade('b');
-    const result = diffTrades({
-      prev: asPrev([a, b]),
-      currentIds: idsOf([]),
-      prevCount: 5,
-      currentCount: 6, // only one accepted credit available
-    });
-    expect(result).toHaveLength(2);
-    // Greedy: first iteration wins the budget, second falls through to declined.
-    expect(result.map((r) => r.outcome)).toEqual(['accepted', 'declined']);
+    const out = findDisappearedTrades(asPrev([a, b]), idsOf([b]));
+    expect(out).toEqual([a]);
   });
 
-  it('marks all resolved as accepted when delta matches resolved count', () => {
+  it('returns nothing when all prev ids still present', () => {
     const a = makeTrade('a');
-    const b = makeTrade('b');
-    const result = diffTrades({
-      prev: asPrev([a, b]),
-      currentIds: idsOf([]),
-      prevCount: 5,
-      currentCount: 7,
-    });
-    expect(result.map((r) => r.outcome)).toEqual(['accepted', 'accepted']);
+    expect(findDisappearedTrades(asPrev([a]), idsOf([a]))).toEqual([]);
   });
 
-  it('marks all resolved as declined when tradesCount goes down (defensive)', () => {
-    const a = makeTrade('a');
-    const result = diffTrades({
-      prev: asPrev([a]),
-      currentIds: idsOf([]),
-      prevCount: 5,
-      currentCount: 4,
-    });
-    expect(result[0]?.outcome).toBe('declined');
+  it('handles empty prev', () => {
+    expect(findDisappearedTrades(new Map(), idsOf([makeTrade('a')]))).toEqual([]);
+  });
+});
+
+describe('inferResolution', () => {
+  const blocks: Block[] = Array.from({ length: 40 }, (_, i) => city({ name: `tile-${i}` }));
+
+  it('returns counter-offered when same-pair trade exists in current', () => {
+    const trade = makeTrade('a', { initiatorId: 'p1', recipientId: 'p2' });
+    const replacement = makeTrade('b', { initiatorId: 'p1', recipientId: 'p2' });
+    expect(
+      inferResolution(trade, [replacement], new Map(), blocks),
+    ).toBe('counter-offered');
   });
 
-  it('only reports trades whose ids are no longer in the current snapshot', () => {
-    const a = makeTrade('a');
-    const b = makeTrade('b');
-    const result = diffTrades({
-      prev: asPrev([a, b]),
-      currentIds: idsOf([b]),
-      prevCount: 0,
-      currentCount: 1,
+  it('returns counter-offered when same-pair trade exists with swapped roles', () => {
+    const trade = makeTrade('a', { initiatorId: 'p1', recipientId: 'p2' });
+    const replacement = makeTrade('b', { initiatorId: 'p2', recipientId: 'p1' });
+    expect(
+      inferResolution(trade, [replacement], new Map(), blocks),
+    ).toBe('counter-offered');
+  });
+
+  it('returns accepted when an initiator-offered property flipped to recipient', () => {
+    const trade = makeTrade('a', {
+      initiatorId: 'p1',
+      recipientId: 'p2',
+      initiatorOffer: {
+        money: 0,
+        propertyIndices: [5],
+        mortgagedPropertiesIndexes: [],
+        pardonCards: [],
+      },
     });
-    expect(result).toHaveLength(1);
-    expect(result[0]?.trade.id).toBe('a');
+    const prevOwners = new Map<number, string | null>([[5, 'p1']]);
+    const currentBlocks = blocks.map((b, i) =>
+      i === 5 ? city({ ownerId: 'p2' }) : b,
+    );
+    expect(inferResolution(trade, [], prevOwners, currentBlocks)).toBe(
+      'accepted',
+    );
+  });
+
+  it('returns accepted when a recipient-offered property flipped to initiator', () => {
+    const trade = makeTrade('a', {
+      initiatorId: 'p1',
+      recipientId: 'p2',
+      recipientOffer: {
+        money: 0,
+        propertyIndices: [12],
+        mortgagedPropertiesIndexes: [],
+        pardonCards: [],
+      },
+    });
+    const prevOwners = new Map<number, string | null>([[12, 'p2']]);
+    const currentBlocks = blocks.map((b, i) =>
+      i === 12 ? city({ ownerId: 'p1' }) : b,
+    );
+    expect(inferResolution(trade, [], prevOwners, currentBlocks)).toBe(
+      'accepted',
+    );
+  });
+
+  it('returns declined when ownership did not change and no replacement exists', () => {
+    const trade = makeTrade('a', {
+      initiatorId: 'p1',
+      recipientId: 'p2',
+      initiatorOffer: {
+        money: 0,
+        propertyIndices: [5],
+        mortgagedPropertiesIndexes: [],
+        pardonCards: [],
+      },
+    });
+    const prevOwners = new Map<number, string | null>([[5, 'p1']]);
+    const currentBlocks = blocks.map((b, i) =>
+      i === 5 ? city({ ownerId: 'p1' }) : b,
+    );
+    expect(inferResolution(trade, [], prevOwners, currentBlocks)).toBe(
+      'declined',
+    );
+  });
+
+  it('ignores ownership changes between unrelated participants', () => {
+    // Property flipped from p3 to p4 — neither is in this trade, so it must
+    // be a coincident transaction, not this trade being accepted.
+    const trade = makeTrade('a', {
+      initiatorId: 'p1',
+      recipientId: 'p2',
+      initiatorOffer: {
+        money: 0,
+        propertyIndices: [5],
+        mortgagedPropertiesIndexes: [],
+        pardonCards: [],
+      },
+    });
+    const prevOwners = new Map<number, string | null>([[5, 'p3']]);
+    const currentBlocks = blocks.map((b, i) =>
+      i === 5 ? city({ ownerId: 'p4' }) : b,
+    );
+    expect(inferResolution(trade, [], prevOwners, currentBlocks)).toBe(
+      'declined',
+    );
+  });
+
+  it('considers a trade with the same id as itself, not as a replacement', () => {
+    const trade = makeTrade('a', { initiatorId: 'p1', recipientId: 'p2' });
+    // currentTrades still containing the same id (shouldn't happen because
+    // the caller only passes disappeared trades, but defensive).
+    expect(inferResolution(trade, [trade], new Map(), blocks)).toBe(
+      'declined',
+    );
   });
 });

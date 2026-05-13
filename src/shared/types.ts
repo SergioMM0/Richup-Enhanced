@@ -116,7 +116,9 @@ export interface Auction {
 
 export interface TradeOffer {
   money: number;
-  blockIndexes: number[];
+  propertyIndices: number[];
+  mortgagedPropertiesIndexes: number[];
+  pardonCards: unknown[];
 }
 
 // Observed at runtime (2026-05-13) — the documented `fromId/toId/offer/request`
