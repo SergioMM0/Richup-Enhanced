@@ -184,6 +184,5 @@ export interface RUESettings {
   showInfoMenu: boolean;
   showLandingChips: boolean;
   showLandingChipsForCurrentTurn: boolean;
-  bindSpaceToRoll: boolean;
   overlayOpacity: number;
 }

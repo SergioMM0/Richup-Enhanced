@@ -7,7 +7,6 @@ export const DEFAULT_SETTINGS: RUESettings = {
   showInfoMenu: true,
   showLandingChips: true,
   showLandingChipsForCurrentTurn: false,
-  bindSpaceToRoll: true,
   overlayOpacity: 0.85,
 };
 
