@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Block, CityBlock, Trade } from '@shared/types';
-import { findDisappearedTrades, inferResolution } from './history-view';
+import {
+  entryInvolvesPlayer,
+  findDisappearedTrades,
+  formatRelativeTime,
+  inferResolution,
+  tradeInvolvesPlayer,
+} from './history-view';
 
 const makeTrade = (id: string, overrides: Partial<Trade> = {}): Trade => ({
   id,
@@ -171,5 +177,64 @@ describe('inferResolution', () => {
     expect(inferResolution(trade, [trade], new Map(), blocks)).toBe(
       'declined',
     );
+  });
+});
+
+describe('tradeInvolvesPlayer', () => {
+  const trade = makeTrade('a', { initiatorId: 'p1', recipientId: 'p2' });
+
+  it('returns true when id is null', () => {
+    expect(tradeInvolvesPlayer(trade, null)).toBe(true);
+  });
+
+  it('returns true for the initiator', () => {
+    expect(tradeInvolvesPlayer(trade, 'p1')).toBe(true);
+  });
+
+  it('returns true for the recipient', () => {
+    expect(tradeInvolvesPlayer(trade, 'p2')).toBe(true);
+  });
+
+  it('returns false for an unrelated player', () => {
+    expect(tradeInvolvesPlayer(trade, 'p3')).toBe(false);
+  });
+});
+
+describe('entryInvolvesPlayer', () => {
+  it('delegates to tradeInvolvesPlayer on the wrapped trade', () => {
+    const trade = makeTrade('a', { initiatorId: 'p1', recipientId: 'p2' });
+    expect(entryInvolvesPlayer({ trade }, 'p2')).toBe(true);
+    expect(entryInvolvesPlayer({ trade }, 'p3')).toBe(false);
+    expect(entryInvolvesPlayer({ trade }, null)).toBe(true);
+  });
+});
+
+describe('formatRelativeTime', () => {
+  const now = 1_700_000_000_000;
+
+  it('returns "just now" within 10 seconds', () => {
+    expect(formatRelativeTime(now - 0, now)).toBe('just now');
+    expect(formatRelativeTime(now - 5_000, now)).toBe('just now');
+    expect(formatRelativeTime(now - 9_999, now)).toBe('just now');
+  });
+
+  it('returns seconds for 10s..59s', () => {
+    expect(formatRelativeTime(now - 10_000, now)).toBe('10s ago');
+    expect(formatRelativeTime(now - 59_000, now)).toBe('59s ago');
+  });
+
+  it('returns minutes for 1m..59m', () => {
+    expect(formatRelativeTime(now - 60_000, now)).toBe('1m ago');
+    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe('5m ago');
+    expect(formatRelativeTime(now - 59 * 60_000, now)).toBe('59m ago');
+  });
+
+  it('returns hours for >=60m', () => {
+    expect(formatRelativeTime(now - 60 * 60_000, now)).toBe('1h ago');
+    expect(formatRelativeTime(now - 3 * 60 * 60_000, now)).toBe('3h ago');
+  });
+
+  it('clamps negative deltas to "just now"', () => {
+    expect(formatRelativeTime(now + 5_000, now)).toBe('just now');
   });
 });

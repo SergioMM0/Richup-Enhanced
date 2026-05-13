@@ -8,7 +8,7 @@ import type {
 } from '@shared/types';
 import { formatMoney } from '../../analytics/player';
 import { getCityFlagEmoji } from '../../analytics/flags';
-import type { InfoMenuView } from './types';
+import type { InfoMenuView, ViewContext } from './types';
 
 const MAX_VISIBLE_RESOLVED = 50;
 
@@ -27,6 +27,35 @@ interface ResolvedEntry {
 interface ParticipantSnapshot {
   name: string;
   color: string;
+}
+
+export function tradeInvolvesPlayer(
+  trade: Trade,
+  id: string | null,
+): boolean {
+  if (id === null) return true;
+  return trade.initiatorId === id || trade.recipientId === id;
+}
+
+export function entryInvolvesPlayer(
+  entry: { trade: Trade },
+  id: string | null,
+): boolean {
+  return tradeInvolvesPlayer(entry.trade, id);
+}
+
+export function formatRelativeTime(
+  resolvedAt: number,
+  now: number = Date.now(),
+): string {
+  const deltaMs = Math.max(0, now - resolvedAt);
+  const seconds = Math.floor(deltaMs / 1000);
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
 }
 
 // Trades that left the active list since the previous snapshot.
@@ -112,6 +141,13 @@ export class HistoryView implements InfoMenuView {
   // every tick so the resolved log always renders with the values that were
   // current when the trade existed.
   private participantSnapshot = new Map<string, ParticipantSnapshot>();
+  private context: ViewContext | null = null;
+  private selectedPlayerId: string | null = null;
+  private filters = { open: true, accepted: true, declined: true };
+
+  attach(context: ViewContext): void {
+    this.context = context;
+  }
 
   observeState(state: RootStoreState | null): void {
     try {
@@ -185,6 +221,85 @@ export class HistoryView implements InfoMenuView {
     this.prevOwners.clear();
     this.entries = [];
     this.participantSnapshot.clear();
+    this.selectedPlayerId = null;
+    this.filters = { open: true, accepted: true, declined: true };
+  }
+
+  renderSubHeader(state: RootStoreState | null): HTMLElement | null {
+    const inner = state?.state;
+    const liveParticipants: Participant[] = Array.isArray(inner?.participants)
+      ? inner!.participants
+      : [];
+    const liveTrades: Trade[] = Array.isArray(inner?.trades)
+      ? inner!.trades
+      : [];
+
+    const involved = new Set<string>();
+    for (const t of liveTrades) {
+      involved.add(t.initiatorId);
+      involved.add(t.recipientId);
+    }
+    for (const e of this.entries) {
+      involved.add(e.trade.initiatorId);
+      involved.add(e.trade.recipientId);
+    }
+
+    // Auto-clear an orphaned selection (player no longer appears in any trade).
+    if (
+      this.selectedPlayerId !== null &&
+      !involved.has(this.selectedPlayerId)
+    ) {
+      this.selectedPlayerId = null;
+    }
+
+    const rail = document.createElement('div');
+    rail.className = 'info-menu__chips';
+    rail.setAttribute('role', 'tablist');
+
+    rail.appendChild(
+      this.makePlayerChip(null, 'All', '#888'),
+    );
+
+    // Live participants first, in turn order, then any snapshot-only ids
+    // (bankrupt or kicked players who still have history).
+    const emitted = new Set<string>();
+    for (const p of liveParticipants) {
+      if (!involved.has(p.id)) continue;
+      this.participantSnapshot.set(p.id, {
+        name: p.name,
+        color: p.appearance,
+      });
+      rail.appendChild(this.makePlayerChip(p.id, p.name, p.appearance));
+      emitted.add(p.id);
+    }
+    for (const [id, snap] of this.participantSnapshot) {
+      if (!involved.has(id) || emitted.has(id)) continue;
+      rail.appendChild(this.makePlayerChip(id, snap.name, snap.color));
+    }
+
+    return rail;
+  }
+
+  private makePlayerChip(
+    id: string | null,
+    label: string,
+    color: string,
+  ): HTMLButtonElement {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'info-menu__chip';
+    chip.setAttribute('role', 'tab');
+    chip.style.setProperty('--tab-color', color);
+    chip.textContent = label;
+    chip.title = label;
+    const isActive = this.selectedPlayerId === id;
+    chip.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    chip.addEventListener('click', () => {
+      this.selectedPlayerId =
+        this.selectedPlayerId === id ? null : id;
+      this.context?.requestUpdate();
+    });
+    return chip;
   }
 
   renderBody(state: RootStoreState | null): HTMLElement {
@@ -201,10 +316,15 @@ export class HistoryView implements InfoMenuView {
       const blocks = Array.isArray(inner.blocks) ? inner.blocks : [];
       const openTrades = Array.isArray(inner.trades) ? inner.trades : [];
 
-      container.appendChild(
-        this.renderOpenSection(openTrades, participants, blocks),
-      );
-      container.appendChild(this.renderResolvedSection(blocks));
+      container.appendChild(this.renderStatusToggles());
+      if (this.filters.open) {
+        container.appendChild(
+          this.renderOpenSection(openTrades, participants, blocks),
+        );
+      }
+      if (this.filters.accepted || this.filters.declined) {
+        container.appendChild(this.renderResolvedSection(blocks));
+      }
     } catch (err) {
       console.error('[RUE] HistoryView.renderBody crashed', err, {
         hasState: !!state,
@@ -218,50 +338,116 @@ export class HistoryView implements InfoMenuView {
     return container;
   }
 
+  private renderStatusToggles(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'info-menu__chips info-menu__chips--status';
+    row.style.marginBottom = '10px';
+
+    row.appendChild(
+      this.makeStatusToggle('open', 'Open', '#60a5fa'),
+    );
+    row.appendChild(
+      this.makeStatusToggle('accepted', '✓ Accepted', '#4ade80'),
+    );
+    row.appendChild(
+      this.makeStatusToggle('declined', '✗ Declined', '#f87171'),
+    );
+    return row;
+  }
+
+  private makeStatusToggle(
+    key: 'open' | 'accepted' | 'declined',
+    label: string,
+    color: string,
+  ): HTMLButtonElement {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'info-menu__chip';
+    chip.style.setProperty('--tab-color', color);
+    chip.textContent = label;
+    chip.title = label;
+    const isOn = this.filters[key];
+    chip.setAttribute('aria-selected', isOn ? 'true' : 'false');
+    chip.addEventListener('click', () => {
+      this.filters[key] = !this.filters[key];
+      this.context?.requestUpdate();
+    });
+    return chip;
+  }
+
+  private playerNameForEmpty(): string | null {
+    if (this.selectedPlayerId === null) return null;
+    const snap = this.participantSnapshot.get(this.selectedPlayerId);
+    return snap?.name ?? null;
+  }
+
   private renderOpenSection(
     trades: Trade[],
     participants: Participant[],
     blocks: Block[],
   ): HTMLElement {
+    const filtered = trades.filter((t) =>
+      tradeInvolvesPlayer(t, this.selectedPlayerId),
+    );
+
     const section = document.createElement('div');
     section.className = 'info-menu__section';
 
     const title = document.createElement('div');
     title.className = 'info-menu__section-title';
-    title.textContent = `Open (${trades.length})`;
+    title.textContent = `Open (${filtered.length})`;
     section.appendChild(title);
 
-    if (trades.length === 0) {
-      section.appendChild(this.emptyMessage('No open trade offers'));
+    if (filtered.length === 0) {
+      const name = this.playerNameForEmpty();
+      section.appendChild(
+        this.emptyMessage(
+          name ? `No open trades involving ${name}` : 'No open trade offers',
+        ),
+      );
       return section;
     }
-    for (const t of trades) {
+    for (const t of filtered) {
       section.appendChild(this.renderOpenCard(t, participants, blocks));
     }
     return section;
   }
 
   private renderResolvedSection(blocks: Block[]): HTMLElement {
+    const filtered = this.entries.filter((e) => {
+      if (!entryInvolvesPlayer(e, this.selectedPlayerId)) return false;
+      if (e.outcome === 'accepted' && !this.filters.accepted) return false;
+      if (e.outcome === 'declined' && !this.filters.declined) return false;
+      return true;
+    });
+
     const section = document.createElement('div');
     section.className = 'info-menu__section';
 
     const title = document.createElement('div');
     title.className = 'info-menu__section-title';
-    title.textContent = `Resolved (${this.entries.length})`;
+    title.textContent = `Resolved (${filtered.length})`;
     section.appendChild(title);
 
-    if (this.entries.length === 0) {
-      section.appendChild(this.emptyMessage('No resolved trades yet'));
+    if (filtered.length === 0) {
+      const name = this.playerNameForEmpty();
+      section.appendChild(
+        this.emptyMessage(
+          name
+            ? `No resolved trades involving ${name}`
+            : 'No resolved trades yet',
+        ),
+      );
       return section;
     }
-    const visible = this.entries.slice(0, MAX_VISIBLE_RESOLVED);
+    const visible = filtered.slice(0, MAX_VISIBLE_RESOLVED);
     for (const e of visible) {
       section.appendChild(this.renderResolvedCard(e, blocks));
     }
-    if (this.entries.length > MAX_VISIBLE_RESOLVED) {
+    if (filtered.length > MAX_VISIBLE_RESOLVED) {
       const more = document.createElement('div');
       more.className = 'info-menu__empty';
-      more.textContent = `+${this.entries.length - MAX_VISIBLE_RESOLVED} earlier`;
+      more.textContent = `+${filtered.length - MAX_VISIBLE_RESOLVED} earlier`;
       section.appendChild(more);
     }
     return section;
@@ -312,7 +498,7 @@ export class HistoryView implements InfoMenuView {
 
     const summary = document.createElement('div');
     summary.className = 'info-menu__rank-summary';
-    summary.textContent = this.summaryForResolved(entry);
+    summary.textContent = `${this.summaryForResolved(entry)} • ${formatRelativeTime(entry.resolvedAt)}`;
     card.appendChild(summary);
 
     this.appendOfferRows(
