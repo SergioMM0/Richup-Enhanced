@@ -119,12 +119,22 @@ export interface TradeOffer {
   blockIndexes: number[];
 }
 
+// Observed at runtime (2026-05-13) — the documented `fromId/toId/offer/request`
+// shape in earlier CLAUDE.md drafts was wrong. Status starts as 'pending';
+// terminal states are unconfirmed — trades may simply disappear from the list
+// on accept/decline rather than transition through a terminal status.
+export type TradeStatus = 'pending' | (string & {});
+
 export interface Trade {
   id: string;
-  fromId: string;
-  toId: string;
-  offer: TradeOffer;
-  request: TradeOffer;
+  initiatorId: string;
+  recipientId: string;
+  status: TradeStatus;
+  negotiationCount: number;
+  watcherIds: string[];
+  note: string | null;
+  initiatorOffer: TradeOffer;
+  recipientOffer: TradeOffer;
 }
 
 export interface BonusCard {

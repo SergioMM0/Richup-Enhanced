@@ -6,6 +6,7 @@ import {
   type InfoMenuLayout,
 } from '@shared/layout';
 import { AuctionView } from './auction-view';
+import { HistoryView } from './history-view';
 import { PlayersView } from './players-view';
 import { RankingView } from './ranking-view';
 import { TradesView } from './trades-view';
@@ -105,6 +106,7 @@ export class InfoMenuOverlay {
     this.registerView(new RankingView());
     this.registerView(new TradesView());
     this.registerView(new AuctionView());
+    this.registerView(new HistoryView());
 
     this.applySettings(this.settings);
   }
