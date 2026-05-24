@@ -134,7 +134,6 @@ export class InfoMenuOverlay {
 
     this.titleEl = document.createElement('div');
     this.titleEl.className = 'info-menu__title';
-    this.titleEl.textContent = 'Rich Up';
 
     this.statusPillEl = document.createElement('span');
     this.statusPillEl.className = 'info-menu__status-pill';
@@ -338,6 +337,8 @@ export class InfoMenuOverlay {
         id === this.activeViewId ? 'true' : 'false',
       );
     }
+    const active = this.views.get(this.activeViewId);
+    if (active) this.titleEl.textContent = active.view.label;
   }
 
   private snapshotParticipants(state: RootStoreState): void {
