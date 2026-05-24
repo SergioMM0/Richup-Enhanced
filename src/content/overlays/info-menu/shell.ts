@@ -12,7 +12,11 @@ import {
   saveLayout,
   type InfoMenuLayout,
 } from '@shared/layout';
-import { formatMoney } from '../../analytics/player';
+import {
+  formatMoney,
+  rankParticipants,
+  type RankedParticipant,
+} from '../../analytics/player';
 import { getCityFlagEmoji } from '../../analytics/flags';
 import {
   findDisappearedTrades,
@@ -58,6 +62,7 @@ export class InfoMenuOverlay {
   private viewBodyEl: HTMLDivElement;
   private bannerEl: HTMLDivElement;
   private winnerRibbonEl: HTMLDivElement;
+  private collapsedSummaryEl: HTMLDivElement;
   private collapseBtn: HTMLButtonElement;
   private collapsed = false;
   private collapsedLoaded = false;
@@ -187,8 +192,14 @@ export class InfoMenuOverlay {
     // players list down — easier to track at a glance.
     this.body.appendChild(this.pendingStripEl);
 
+    // Sibling of body so it can render independently when body is hidden
+    // (collapsed mode). Driven by render() like every other section.
+    this.collapsedSummaryEl = document.createElement('div');
+    this.collapsedSummaryEl.className = 'info-menu__collapsed-summary';
+
     this.root.appendChild(this.header);
     this.root.appendChild(this.body);
+    this.root.appendChild(this.collapsedSummaryEl);
 
     this.header.addEventListener('pointerdown', this.boundPointerDown);
 
@@ -416,6 +427,10 @@ export class InfoMenuOverlay {
     const inner = state?.state;
     const phase = inner?.phase;
 
+    // Always keep the collapsed summary in sync — the panel can be collapsed
+    // at any point and the summary is the only visible content in that mode.
+    this.renderCollapsedSummary(state);
+
     if (!state || !inner) {
       this.renderBanner(this.makeConnectingBanner());
       return;
@@ -484,6 +499,124 @@ export class InfoMenuOverlay {
       const has = entry.view.hasNotification?.(state) ?? false;
       entry.dotEl.hidden = !has;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Collapsed-mode summary
+  // ------------------------------------------------------------------
+
+  // Compact one-row-per-player roster shown only while the panel is
+  // collapsed. The panel's min-height is sized to fit exactly the live
+  // active-player count (capped at 8) via the --rue-collapsed-rows CSS var
+  // set below — so a 3-player game stays small and an 8+ game gets the
+  // reserved space it needs.
+  private renderCollapsedSummary(state: RootStoreState | null): void {
+    this.collapsedSummaryEl.replaceChildren();
+    const inner = state?.state;
+    if (!inner || (inner.phase !== 'playing' && inner.phase !== 'ended')) {
+      this.setCollapsedRowCount(0);
+      return;
+    }
+
+    const participants = inner.participants ?? [];
+    const blocks = inner.blocks ?? [];
+    const ranked = rankParticipants(participants, blocks);
+    this.setCollapsedRowCount(ranked.length);
+    if (ranked.length === 0) return;
+
+    const currentTurnId = participants[inner.currentPlayerIndex]?.id ?? null;
+    for (const r of ranked) {
+      this.collapsedSummaryEl.appendChild(
+        this.renderCollapsedRow(r, currentTurnId),
+      );
+    }
+  }
+
+  private setCollapsedRowCount(count: number): void {
+    // Cap at 8 — beyond that the summary scrolls inside its container
+    // rather than growing the panel further.
+    this.root.style.setProperty(
+      '--rue-collapsed-rows',
+      String(Math.min(Math.max(count, 0), 8)),
+    );
+  }
+
+  private renderCollapsedRow(
+    r: RankedParticipant,
+    currentTurnId: string | null,
+  ): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'info-menu__collapsed-row';
+    if (r.participant.id === currentTurnId) {
+      row.classList.add('info-menu__collapsed-row--current');
+    }
+    row.style.setProperty('--tab-color', r.participant.appearance);
+
+    const name = document.createElement('span');
+    name.className = 'info-menu__collapsed-name';
+    name.textContent = r.participant.name;
+    name.title = r.participant.name;
+    row.appendChild(name);
+
+    const setCount = r.holdings.completedSets.size;
+    if (setCount > 0) {
+      const sets = document.createElement('span');
+      sets.className = 'info-menu__collapsed-sets';
+      sets.textContent = '★'.repeat(setCount);
+      sets.title =
+        setCount === 1
+          ? 'Holds 1 complete monopoly'
+          : `Holds ${setCount} complete monopolies`;
+      row.appendChild(sets);
+    }
+
+    // Per-group counts so partial progress is visible (e.g. owning 2 of 3
+     // cities in a country shows as "🇮🇹2" before a ★ is earned). Completed
+     // sets get a brighter weight to pair with the ★ count to the left.
+    if (r.holdings.totalProperties > 0) {
+      const holdings = document.createElement('span');
+      holdings.className = 'info-menu__collapsed-holdings';
+      const titleParts: string[] = [];
+      const addGroup = (
+        glyph: string,
+        count: number,
+        complete: boolean,
+        titleLabel: string,
+      ): void => {
+        const grp = document.createElement('span');
+        grp.className = 'info-menu__collapsed-group';
+        if (complete) grp.classList.add('info-menu__collapsed-group--complete');
+        grp.textContent = `${glyph}${count}`;
+        holdings.appendChild(grp);
+        titleParts.push(`${titleLabel}: ${count}`);
+      };
+
+      for (const [countryId, cities] of r.holdings.citiesByCountry) {
+        const flag = getCityFlagEmoji(cities[0]!);
+        if (!flag) continue;
+        addGroup(
+          flag,
+          cities.length,
+          r.holdings.completedSets.has(countryId),
+          flag,
+        );
+      }
+      if (r.holdings.airports.length > 0) {
+        addGroup('✈', r.holdings.airports.length, false, 'Airports');
+      }
+      if (r.holdings.companies.length > 0) {
+        addGroup('⚙', r.holdings.companies.length, false, 'Companies');
+      }
+      holdings.title = `${r.holdings.totalProperties} owned · ${titleParts.join(', ')}`;
+      row.appendChild(holdings);
+    }
+
+    const money = document.createElement('span');
+    money.className = 'info-menu__collapsed-money';
+    money.textContent = formatMoney(r.breakdown.total);
+    row.appendChild(money);
+
+    return row;
   }
 
   private renderBanner(node: HTMLElement): void {

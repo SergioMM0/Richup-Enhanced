@@ -15,6 +15,7 @@ const THEME_TOKENS = `
     --rue-base-font-size: 12px;
     --rue-row-font-size: 11px;
     --rue-strong-font-size: 12px;
+    --rue-collapsed-row-h: 22px;
   }
   :host([data-density="detailed"]) {
     --rue-radius-md: 10px;
@@ -23,6 +24,7 @@ const THEME_TOKENS = `
     --rue-base-font-size: 14px;
     --rue-row-font-size: 13px;
     --rue-strong-font-size: 14px;
+    --rue-collapsed-row-h: 26px;
   }
 
   /* Dark — refined frosted glass (default) */
@@ -196,12 +198,96 @@ export const INFO_MENU_CSS = `
     transform: rotate(180deg);
   }
   .info-menu--collapsed {
-    /* Drop the resize affordance while collapsed — height auto-shrinks to
-       the header and the saved height is restored on expand. */
+    /* Drop the resize affordance while collapsed — height adapts to the
+       live player count (capped at 8 rows) via --rue-collapsed-rows set
+       by the shell on each render. The 38px constant covers header +
+       summary padding so the formula resolves to "0 rows = header only,
+       N rows = header + N*row-height". */
     resize: none;
+    min-height: calc(38px + var(--rue-collapsed-row-h, 22px) * var(--rue-collapsed-rows, 0));
   }
   .info-menu--collapsed .info-menu__body {
     display: none;
+  }
+
+  /* Collapsed-mode summary — only visible when collapsed. Fills the space
+     reserved by .info-menu's min-height with a compact per-player roster
+     (name, set stars, country flags + property count, net worth). */
+  .info-menu__collapsed-summary {
+    display: none;
+  }
+  .info-menu--collapsed .info-menu__collapsed-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 8px 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rue-scroll) transparent;
+  }
+  .info-menu__collapsed-summary::-webkit-scrollbar { width: 6px; }
+  .info-menu__collapsed-summary::-webkit-scrollbar-thumb {
+    background: var(--rue-scroll);
+    border-radius: 3px;
+  }
+  .info-menu__collapsed-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-left: 3px solid color-mix(in srgb, var(--tab-color, currentColor) 70%, transparent);
+    border-radius: 0 var(--rue-radius-sm) var(--rue-radius-sm) 0;
+    font-size: var(--rue-row-font-size);
+    line-height: 1.2;
+  }
+  .info-menu__collapsed-row--current {
+    background: color-mix(in srgb, var(--tab-color, var(--rue-accent)) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 35%, transparent);
+  }
+  .info-menu__collapsed-name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .info-menu__collapsed-sets {
+    flex: 0 0 auto;
+    color: var(--rue-rent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+  .info-menu__collapsed-holdings {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .info-menu__collapsed-group {
+    flex: 0 0 auto;
+    color: var(--rue-fg-dim);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+  }
+  .info-menu__collapsed-group--complete {
+    color: var(--rue-rent);
+    font-weight: 700;
+  }
+  .info-menu__collapsed-money {
+    flex: 0 0 auto;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--rue-money);
+    font-size: var(--rue-row-font-size);
   }
   /* Outer body — vertical stack of pending strip / winner ribbon / main.
      The scrolling area is .info-menu__view-body deeper in, not the body
