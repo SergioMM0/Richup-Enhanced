@@ -21,14 +21,16 @@ function deriveSessionKey(state: RootStoreState | null): string | null {
 }
 
 const CONTAINER_ID = 'rue-overlay-root';
+const FONT_STYLE_ID = 'rue-flag-font';
 
 // Windows' default emoji font (Segoe UI Emoji) intentionally omits country
 // flag glyphs — Chrome falls back to rendering the regional-indicator letters
 // as plain text. We bundle Twemoji Country Flags as a web-accessible resource
 // and pull it in via @font-face so flags render the same on every platform.
-// Built at runtime so chrome.runtime.getURL() resolves to the actual asset URL.
-function buildShadowCss(): string {
-  const flagFontUrl = chrome.runtime.getURL('public/fonts/TwemojiCountryFlags.woff2');
+function flagFontFaceCss(): string {
+  const flagFontUrl = chrome.runtime.getURL(
+    'public/fonts/TwemojiCountryFlags.woff2',
+  );
   return `
     @font-face {
       font-family: 'Twemoji Country Flags';
@@ -36,6 +38,28 @@ function buildShadowCss(): string {
       font-display: swap;
       unicode-range: U+1F1E6-1F1FF;
     }
+  `;
+}
+
+// The @font-face MUST live at document scope, not only inside the shadow root.
+// Chromium's font-load trigger for `unicode-range` doesn't reliably fire for
+// shadow-only @font-face declarations when the matching codepoints render
+// inside the shadow tree (font request never goes out → glyphs fall back to
+// regional-indicator letters like "GB"/"BR"). Document-level @font-face is
+// inherited by descendants of every shadow root automatically.
+function injectGlobalFlagFont(): void {
+  if (document.getElementById(FONT_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = FONT_STYLE_ID;
+  style.textContent = flagFontFaceCss();
+  document.head.appendChild(style);
+}
+
+function buildShadowCss(): string {
+  // Keep a shadow-side copy too as belt-and-braces — costs nothing and means
+  // the overlay still renders flags if the global injection ever fails.
+  return `
+    ${flagFontFaceCss()}
     :host { all: initial; }
     .root {
       position: fixed;
@@ -161,6 +185,8 @@ export class OverlayManager {
   private mountShadow(): void {
     const existing = document.getElementById(CONTAINER_ID);
     existing?.remove();
+
+    injectGlobalFlagFont();
 
     const host = document.createElement('div');
     host.id = CONTAINER_ID;

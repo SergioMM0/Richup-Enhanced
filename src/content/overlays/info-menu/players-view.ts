@@ -125,24 +125,12 @@ export class PlayersView implements InfoMenuView {
 
   private renderPlayerDetail(
     r: RankedParticipant,
-    stats: RootStoreState['state']['stats'] | undefined,
+    _stats: RootStoreState['state']['stats'] | undefined,
   ): HTMLElement {
     const detail = document.createElement('div');
     detail.className = 'info-menu__player-row-detail';
 
-    detail.appendChild(this.row('Cash', formatMoney(r.breakdown.cash)));
-    detail.appendChild(this.row('Properties', formatMoney(r.breakdown.propertyValue)));
-    if (r.breakdown.lockedInSets > 0) {
-      detail.appendChild(
-        this.row('Locked in sets', formatMoney(r.breakdown.lockedInSets)),
-      );
-    }
-
-    const density = this.ctx?.settings().densityMode ?? 'compact';
-    if (density === 'detailed' && stats) {
-      const prison = stats.prisonVisits?.[r.participant.id] ?? 0;
-      detail.appendChild(this.row('Prison visits', String(prison)));
-    }
+    detail.appendChild(this.renderMoneyLine(r.breakdown.cash, r.breakdown.propertyValue));
 
     if (r.holdings.totalProperties > 0) {
       detail.appendChild(this.renderHoldings(r.holdings));
@@ -156,12 +144,50 @@ export class PlayersView implements InfoMenuView {
     return detail;
   }
 
+  // Single horizontal line: cash + property value. Locked-in-sets value and
+  // prison visits intentionally dropped — the ★ on a complete-set flag below
+  // already signals the relevant set state, and prison visits don't drive
+  // decisions.
+  private renderMoneyLine(cash: number, properties: number): HTMLElement {
+    const line = document.createElement('div');
+    line.className = 'info-menu__player-money';
+
+    const cashEl = document.createElement('span');
+    cashEl.className = 'info-menu__player-money-item';
+    cashEl.innerHTML = '';
+    const cashIcon = document.createElement('span');
+    cashIcon.className = 'info-menu__player-money-icon';
+    cashIcon.textContent = '💰';
+    const cashVal = document.createElement('span');
+    cashVal.className = 'info-menu__player-money-val';
+    cashVal.textContent = formatMoney(cash);
+    cashEl.appendChild(cashIcon);
+    cashEl.appendChild(cashVal);
+    cashEl.title = 'Cash on hand';
+
+    const propEl = document.createElement('span');
+    propEl.className = 'info-menu__player-money-item';
+    const propIcon = document.createElement('span');
+    propIcon.className = 'info-menu__player-money-icon';
+    propIcon.textContent = '🏛';
+    const propVal = document.createElement('span');
+    propVal.className = 'info-menu__player-money-val';
+    propVal.textContent = formatMoney(properties);
+    propEl.appendChild(propIcon);
+    propEl.appendChild(propVal);
+    propEl.title = 'Property liquidation value';
+
+    line.appendChild(cashEl);
+    line.appendChild(propEl);
+    return line;
+  }
+
   private renderHoldings(h: ParticipantHoldings): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'info-menu__player-holdings';
 
+    // Cities — group by country. Completed sets float to the top.
     if (h.cities.length > 0) {
-      wrap.appendChild(this.groupTitle(`Cities (${h.cities.length})`));
       const countries = [...h.citiesByCountry.entries()].sort((a, b) => {
         const aDone = h.completedSets.has(a[0]) ? 0 : 1;
         const bDone = h.completedSets.has(b[0]) ? 0 : 1;
@@ -169,47 +195,75 @@ export class PlayersView implements InfoMenuView {
       });
       for (const [countryId, cities] of countries) {
         const isSet = h.completedSets.has(countryId);
-        for (const c of cities) {
-          wrap.appendChild(this.cityRow(c, isSet));
-        }
+        wrap.appendChild(this.renderHoldRow(getCityFlagEmoji(cities[0]!) ?? '', cities, isSet));
       }
     }
 
-    this.renderFlatGroup(wrap, 'Airports', h.airports);
-    this.renderFlatGroup(wrap, 'Companies', h.companies);
+    if (h.airports.length > 0) {
+      wrap.appendChild(this.renderHoldRow('✈', h.airports, false));
+    }
+    if (h.companies.length > 0) {
+      wrap.appendChild(this.renderHoldRow('⚙', h.companies, false));
+    }
     return wrap;
   }
 
-  private renderFlatGroup(
-    parent: HTMLElement,
-    title: string,
-    items: (AirportBlock | CompanyBlock)[],
-  ): void {
-    if (items.length === 0) return;
-    parent.appendChild(this.groupTitle(`${title} (${items.length})`));
-    for (const b of items) parent.appendChild(this.simpleFlatRow(b));
+  // One row per group. The leading glyph (flag / ✈ / ⚙) anchors the group;
+  // each owned property is rendered as a small dot chip carrying dev/mortgage
+  // info inline. Hover tooltip surfaces the property name.
+  private renderHoldRow(
+    glyph: string,
+    items: (CityBlock | AirportBlock | CompanyBlock)[],
+    isSet: boolean,
+  ): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'info-menu__hold-row';
+
+    const label = document.createElement('span');
+    label.className = 'info-menu__hold-label';
+    label.textContent = glyph;
+    row.appendChild(label);
+
+    const chips = document.createElement('span');
+    chips.className = 'info-menu__hold-chips';
+    for (const b of items) chips.appendChild(this.renderPropChip(b));
+    row.appendChild(chips);
+
+    if (isSet) {
+      const star = document.createElement('span');
+      star.className = 'info-menu__hold-set';
+      star.textContent = '★';
+      star.title = 'Complete monopoly';
+      row.appendChild(star);
+    }
+    return row;
   }
 
-  private cityRow(c: CityBlock, isSet: boolean): HTMLElement {
-    const flag = getCityFlagEmoji(c);
-    const prefix = flag ? `${flag} ` : '';
-    const suffix = isSet ? ' ★' : '';
-    return this.holdingRow(
-      `${prefix}${c.name}${suffix}`,
-      this.cityValue(c),
-      c.isMortgaged,
-    );
-  }
+  private renderPropChip(
+    b: CityBlock | AirportBlock | CompanyBlock,
+  ): HTMLElement {
+    const chip = document.createElement('span');
+    chip.className = 'info-menu__prop-chip';
 
-  private cityValue(c: CityBlock): string {
-    if (c.isMortgaged) return 'Mortgaged';
-    if (c.level === 5) return 'Hotel';
-    if (c.level >= 1 && c.level <= 4) return `${c.level}H`;
-    return '—';
-  }
-
-  private simpleFlatRow(b: AirportBlock | CompanyBlock): HTMLElement {
-    return this.holdingRow(b.name, b.isMortgaged ? 'Mortgaged' : '—', b.isMortgaged);
+    let body = '';
+    let extraTitle = '';
+    if (b.isMortgaged) {
+      chip.classList.add('info-menu__prop-chip--mortgaged');
+      extraTitle = ' (mortgaged)';
+    } else if (b.type === 'city') {
+      if (b.level === 5) {
+        chip.classList.add('info-menu__prop-chip--hotel');
+        body = '★';
+        extraTitle = ' (hotel)';
+      } else if (b.level >= 1 && b.level <= 4) {
+        chip.classList.add('info-menu__prop-chip--houses');
+        body = String(b.level);
+        extraTitle = ` (${b.level} house${b.level === 1 ? '' : 's'})`;
+      }
+    }
+    chip.textContent = body;
+    chip.title = `${b.name}${extraTitle}`;
+    return chip;
   }
 
   private togglePin(id: string): void {
@@ -224,41 +278,4 @@ export class PlayersView implements InfoMenuView {
     );
   }
 
-  private row(label: string, value: string): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'info-menu__row';
-    const l = document.createElement('span');
-    l.className = 'info-menu__row-label';
-    l.textContent = label;
-    const v = document.createElement('span');
-    v.className = 'info-menu__row-value';
-    v.textContent = value;
-    row.appendChild(l);
-    row.appendChild(v);
-    return row;
-  }
-
-  private holdingRow(label: string, value: string, mortgaged: boolean): HTMLElement {
-    const row = document.createElement('div');
-    let cls = 'info-menu__row';
-    if (mortgaged) cls += ' info-menu__row--mortgaged';
-    row.className = cls;
-    const l = document.createElement('span');
-    l.className = 'info-menu__row-label';
-    l.textContent = label;
-    l.title = label;
-    const v = document.createElement('span');
-    v.className = 'info-menu__row-value';
-    v.textContent = value;
-    row.appendChild(l);
-    row.appendChild(v);
-    return row;
-  }
-
-  private groupTitle(text: string): HTMLElement {
-    const h = document.createElement('div');
-    h.className = 'info-menu__property-group-title';
-    h.textContent = text;
-    return h;
-  }
 }

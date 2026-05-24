@@ -521,13 +521,103 @@ export const INFO_MENU_CSS = `
     padding: 0 calc(8px * var(--rue-density-pad)) calc(10px * var(--rue-density-pad)) 14px;
     display: flex;
     flex-direction: column;
-    gap: calc(2px * var(--rue-density-gap));
+    gap: calc(4px * var(--rue-density-gap));
   }
+
+  /* Money line — cash + property value, inline with icons. Replaces the
+     four-row Cash/Properties/Locked/Prison block. */
+  .info-menu__player-money {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    font-size: var(--rue-row-font-size);
+  }
+  .info-menu__player-money-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .info-menu__player-money-icon {
+    font-size: 11px;
+    opacity: 0.75;
+  }
+  .info-menu__player-money-val {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--rue-fg);
+  }
+
+  /* Holdings — one row per country (+ airports/companies), each with the
+     glyph anchor, a strip of property chips, and a ★ if the set is complete. */
   .info-menu__player-holdings {
-    margin-top: 6px;
+    margin-top: 4px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 3px;
+  }
+  .info-menu__hold-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--rue-row-font-size);
+  }
+  /* Plain inline-block so the two regional-indicator codepoints inside a
+     flag emoji stay in one text node and get shaped as a single grapheme.
+     inline-flex broke that on Windows and the flag rendered as 'GB' / 'BR'
+     letter pairs. */
+  .info-menu__hold-label {
+    flex: 0 0 auto;
+    min-width: 18px;
+    display: inline-block;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1;
+    user-select: none;
+  }
+  .info-menu__hold-chips {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    min-width: 0;
+  }
+  .info-menu__hold-set {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--rue-rent);
+    font-weight: 700;
+  }
+
+  /* Property chip — small filled circle in the player's color. Hotel/houses
+     overlay a glyph or digit; mortgaged renders as a faded ring. */
+  .info-menu__prop-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--tab-color, var(--rue-accent));
+    color: var(--rue-bg);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 60%, var(--rue-bg));
+  }
+  .info-menu__prop-chip--houses {
+    background: color-mix(in srgb, var(--tab-color, var(--rue-accent)) 90%, white);
+  }
+  .info-menu__prop-chip--hotel {
+    background: var(--rue-rent);
+    color: var(--rue-bg);
+    box-shadow: inset 0 0 0 1px var(--rue-rent), 0 0 6px color-mix(in srgb, var(--rue-rent) 60%, transparent);
+  }
+  .info-menu__prop-chip--mortgaged {
+    background: transparent;
+    color: var(--rue-fg-mute);
+    opacity: 0.55;
+    box-shadow: inset 0 0 0 1px var(--rue-fg-mute);
   }
   .info-menu__pin-btn {
     flex: 0 0 auto;
