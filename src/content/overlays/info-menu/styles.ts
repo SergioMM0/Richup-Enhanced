@@ -507,6 +507,19 @@ export const INFO_MENU_CSS = `
   .info-menu__player-row--expanded {
     background: var(--rue-bg-elev);
   }
+  /* Player has at least one completed monopoly — strengthen the left bar to
+     solid tab-color and add a soft outer glow so the row reads as "locked in". */
+  .info-menu__player-row--has-set {
+    border-left-color: var(--tab-color, currentColor);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 55%, transparent),
+      0 0 6px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 30%, transparent);
+  }
+  .info-menu__player-row--current.info-menu__player-row--has-set {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 70%, transparent),
+      0 0 8px color-mix(in srgb, var(--tab-color, var(--rue-accent)) 40%, transparent);
+  }
   .info-menu__player-row-top {
     display: flex;
     align-items: center;
