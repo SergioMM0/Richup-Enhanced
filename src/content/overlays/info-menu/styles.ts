@@ -400,6 +400,20 @@ export const INFO_MENU_CSS = `
   }
   .info-menu__pending[hidden] { display: none; }
   .info-menu__pending:hover { background: var(--rue-bg-elev-strong); }
+  /* Empty state — bar stays mounted so the layout doesn't reflow when
+     events arrive, but signals "nothing to do" without inviting clicks. */
+  .info-menu__pending--empty,
+  .info-menu__pending--empty:hover {
+    background: transparent;
+    cursor: default;
+  }
+  .info-menu__pending-empty {
+    font-size: 11px;
+    color: var(--rue-fg-mute);
+    text-align: center;
+    font-style: italic;
+    line-height: 1.2;
+  }
   .info-menu__pending-lines {
     display: flex;
     flex-direction: column;

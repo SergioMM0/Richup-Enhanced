@@ -533,13 +533,23 @@ export class InfoMenuOverlay {
       (t) => t.initiatorId === selfId || t.recipientId === selfId,
     );
 
+    // The strip stays mounted in playing phase regardless of content so the
+    // menu's main area doesn't reflow every time an auction starts or a
+    // trade lands. Empty state gets a muted placeholder; the lobby/ended
+    // banners still hide the strip via renderBanner / the ended branch.
+    this.pendingStripEl.hidden = false;
+
     if (!auction && myTrades.length === 0) {
-      this.pendingStripEl.hidden = true;
-      this.pendingStripEl.replaceChildren();
+      this.pendingExpanded = false;
+      this.pendingStripEl.classList.add('info-menu__pending--empty');
+      const empty = document.createElement('div');
+      empty.className = 'info-menu__pending-empty';
+      empty.textContent = 'Nothing pending';
+      this.pendingStripEl.replaceChildren(empty);
       return;
     }
 
-    this.pendingStripEl.hidden = false;
+    this.pendingStripEl.classList.remove('info-menu__pending--empty');
     const lines = document.createElement('div');
     lines.className = 'info-menu__pending-lines';
 
