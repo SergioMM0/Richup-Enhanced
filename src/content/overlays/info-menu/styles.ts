@@ -551,6 +551,7 @@ export const INFO_MENU_CSS = `
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
+    justify-content: center;
     gap: 4px 12px;
     font-size: var(--rue-row-font-size);
   }
