@@ -542,10 +542,7 @@ export class InfoMenuOverlay {
     if (!auction && myTrades.length === 0) {
       this.pendingExpanded = false;
       this.pendingStripEl.classList.add('info-menu__pending--empty');
-      const empty = document.createElement('div');
-      empty.className = 'info-menu__pending-empty';
-      empty.textContent = 'Nothing pending';
-      this.pendingStripEl.replaceChildren(empty);
+      this.pendingStripEl.replaceChildren();
       return;
     }
 
