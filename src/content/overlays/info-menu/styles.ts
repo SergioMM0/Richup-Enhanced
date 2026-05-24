@@ -386,12 +386,14 @@ export const INFO_MENU_CSS = `
   }
   .info-menu__status-pill[hidden] { display: none; }
 
-  /* Pending strip — auction + trade summary above the players list. */
+  /* Pending strip — auction + trade summary docked to the bottom edge of
+     the panel. Border on top instead of bottom now that it's the
+     bottom-most element. */
   .info-menu__pending {
     flex: 0 0 auto;
     padding: calc(8px * var(--rue-density-pad)) calc(12px * var(--rue-density-pad));
     background: var(--rue-bg-elev);
-    border-bottom: 1px solid var(--rue-border);
+    border-top: 1px solid var(--rue-border);
     cursor: pointer;
     user-select: none;
     transition: background-color 100ms linear;
@@ -836,7 +838,7 @@ export const INFO_MENU_CSS = `
      rendering — the fall-back is simply no entry animation, which is fine
      for our shadow-DOM-isolated overlay. */
   @keyframes rue-pending-in {
-    from { opacity: 0; transform: translateY(-4px); }
+    from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   .info-menu__pending:not([hidden]) {

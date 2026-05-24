@@ -175,10 +175,12 @@ export class InfoMenuOverlay {
     this.mainEl.appendChild(this.railEl);
     this.mainEl.appendChild(this.viewBodyEl);
 
-    this.body.appendChild(this.pendingStripEl);
     this.body.appendChild(this.bannerEl);
     this.body.appendChild(this.winnerRibbonEl);
     this.body.appendChild(this.mainEl);
+    // Pending strip sits at the bottom so its appearance doesn't push the
+    // players list down — easier to track at a glance.
+    this.body.appendChild(this.pendingStripEl);
 
     this.root.appendChild(this.header);
     this.root.appendChild(this.body);
