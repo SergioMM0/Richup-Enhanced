@@ -96,6 +96,12 @@ export class InfoMenuOverlay {
   // (the render bails immediately) but always running while the panel exists
   // so the user doesn't see a stuck countdown if state pushes stall.
   private tickerId: number | null = null;
+  // Coalesces multiple update() / requestUpdate() calls in the same animation
+  // frame into a single render. State pushes can arrive in bursts (e.g. a
+  // turn that triggers position + money + dice + bonus all in one tick) and
+  // re-rendering the whole active view per push made detailed mode feel
+  // glitchy.
+  private renderRafId: number | null = null;
   private boundWindowResize = () => this.handleWindowResize();
   private boundPointerDown = (e: PointerEvent) => this.handlePointerDown(e);
   private boundPointerMove = (e: PointerEvent) => this.handlePointerMove(e);
@@ -104,7 +110,7 @@ export class InfoMenuOverlay {
   // Shared ViewContext handed to every registered view. Methods close over
   // `this`, so they always reflect the shell's current settings/log.
   private readonly viewContext: ViewContext = {
-    requestUpdate: () => this.render(),
+    requestUpdate: () => this.scheduleRender(),
     settings: () => this.settings,
     resolvedEntries: () => this.resolvedEntriesLog,
   };
@@ -237,6 +243,10 @@ export class InfoMenuOverlay {
       clearInterval(this.tickerId);
       this.tickerId = null;
     }
+    if (this.renderRafId !== null) {
+      cancelAnimationFrame(this.renderRafId);
+      this.renderRafId = null;
+    }
     for (const entry of this.views.values()) entry.view.destroy?.();
     this.views.clear();
     this.lastState = null;
@@ -256,7 +266,7 @@ export class InfoMenuOverlay {
       this.snapshotParticipants(state);
       this.observeTradeResolutions(state);
     }
-    this.render();
+    this.scheduleRender();
   }
 
   resetSession(): void {
@@ -267,7 +277,19 @@ export class InfoMenuOverlay {
     this.resolvedEntriesLog = [];
     for (const entry of this.views.values()) entry.view.resetSession?.();
     this.lastState = null;
-    this.render();
+    this.scheduleRender();
+  }
+
+  // Coalesces render requests into rAF. Multiple calls within a single frame
+  // collapse into one render(); state-tick storms (turn + position + money
+  // + dice arriving in rapid succession) no longer rebuild the active view
+  // multiple times per frame.
+  private scheduleRender(): void {
+    if (this.renderRafId !== null) return;
+    this.renderRafId = requestAnimationFrame(() => {
+      this.renderRafId = null;
+      this.render();
+    });
   }
 
   // ------------------------------------------------------------------

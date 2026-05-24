@@ -834,24 +834,11 @@ export const INFO_MENU_CSS = `
     white-space: nowrap;
   }
 
-  /* Motion polish. Browsers without @starting-style still get a static
-     rendering — the fall-back is simply no entry animation, which is fine
-     for our shadow-DOM-isolated overlay. */
-  @keyframes rue-pending-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .info-menu__pending:not([hidden]) {
-    animation: rue-pending-in 140ms ease-out;
-  }
-  @keyframes rue-row-detail-in {
-    from { opacity: 0; transform: translateY(-2px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .info-menu__player-row-detail,
-  .info-menu__pending-detail {
-    animation: rue-row-detail-in 120ms ease-out;
-  }
+  /* No auto-fire entry animations on elements that get recreated on every
+     state push (player rows, pending strip, history items) — running a
+     120ms animation on each refresh made detailed-mode feel glitchy when
+     state ticks faster than that. The shell coalesces renders into rAF
+     instead so frame rate stays stable. */
 
   /* Focus rings — important on high-contrast theme. */
   .info-menu__pin-btn:focus-visible,
