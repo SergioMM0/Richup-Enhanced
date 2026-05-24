@@ -89,6 +89,18 @@ main {
   flex-shrink: 0;
 }
 
+.row-sub {
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 2px solid #d6d6d6;
+}
+.row-sub[hidden] {
+  display: none;
+}
+.row-sub .row-label-text {
+  font-weight: 500;
+}
+
 .row input[type="range"] {
   width: 100%;
 }
@@ -150,6 +162,9 @@ footer {
     background: #2a2a2c;
     color: #f3f3f3;
     border-color: #3a3a3c;
+  }
+  .row-sub {
+    border-left-color: #3a3a3c;
   }
   .reset-button {
     color: #b3b3b3;

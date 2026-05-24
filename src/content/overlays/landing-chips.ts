@@ -291,14 +291,27 @@ export class LandingChipsOverlay {
     const prevDensity = this.settings.densityMode;
     this.settings = settings;
     if (!this.container) return;
-    const enabled = settings.overlaysEnabled && settings.showLandingChips;
-    this.container.style.display = enabled ? '' : 'none';
+    // The container is visible when ANY prediction path can still fire — main
+    // toggle (auto-follow + pin) OR the hover path. Only when both are off do
+    // we hide it. Inside render() we re-check which path is allowed for the
+    // current active source.
+    const visible = this.containerVisible();
+    this.container.style.display = visible ? '' : 'none';
     this.container.style.opacity = String(settings.overlayOpacity);
-    if (!enabled) {
+    if (!visible) {
       // Drop the pin too — re-enabling should start clean rather than
       // surface a stale pin the user can't see the trigger for.
       this.pinnedParticipantId = null;
       this.clear();
+      return;
+    }
+    if (!this.autoAndPinAllowed()) {
+      // Main toggle just went off (or was off and the sub-option just opened
+      // hover-only mode). Drop the pin so we don't stick on a stale player;
+      // hover still works.
+      this.pinnedParticipantId = null;
+      this.lastRenderedKey = null;
+      this.render();
       return;
     }
     // Density flip changes chip height, which shifts the anchor offset.
@@ -314,8 +327,24 @@ export class LandingChipsOverlay {
       : CHIP_SHORT_DETAILED;
   }
 
-  private isEnabled(): boolean {
+  // Hover predictions get their own enable path: even with the main "Landing
+  // predictions" toggle off, users can still peek by hovering a player —
+  // unless they've also opted out via `disableHoverLandingChips`.
+  private hoverAllowed(): boolean {
+    if (!this.settings.overlaysEnabled) return false;
+    if (this.settings.showLandingChips) return true;
+    return !this.settings.disableHoverLandingChips;
+  }
+
+  // Auto-follow (current turn) and pin require the main toggle. They paint
+  // the board persistently, so we only do it when the user has explicitly
+  // opted in via the main "Landing predictions" setting.
+  private autoAndPinAllowed(): boolean {
     return this.settings.overlaysEnabled && this.settings.showLandingChips;
+  }
+
+  private containerVisible(): boolean {
+    return this.hoverAllowed() || this.autoAndPinAllowed();
   }
 
   private handleOver(e: MouseEvent): void {
@@ -329,7 +358,7 @@ export class LandingChipsOverlay {
       target,
       eventPhase: e.eventPhase,
     });
-    if (!this.isEnabled()) return;
+    if (!this.hoverAllowed()) return;
     if (!card) return;
     const id = card.getAttribute('data-participant-id');
     if (!id) return;
@@ -363,6 +392,14 @@ export class LandingChipsOverlay {
       | HTMLElement
       | null;
     if (!card) return;
+    // The InfoMenu re-renders the player list on every state push via
+    // replaceChildren, which detaches the row under the cursor. Chrome fires
+    // mouseout on the detached node but doesn't reliably re-fire mouseover on
+    // the freshly attached replacement until the cursor moves — so if we
+    // cleared here, the prediction would vanish on the first state push after
+    // hover and never come back. Treat detached targets as "DOM mutated under
+    // a stationary cursor" rather than a real mouse-leave.
+    if (!card.isConnected) return;
     const related = e.relatedTarget as HTMLElement | null;
     if (related && card.contains(related)) return;
     // If moving directly to another player card, let mouseover swap us over.
@@ -385,7 +422,7 @@ export class LandingChipsOverlay {
       debug('render: no container');
       return;
     }
-    if (!this.isEnabled()) {
+    if (!this.containerVisible()) {
       debug('render: disabled');
       return;
     }
@@ -401,7 +438,7 @@ export class LandingChipsOverlay {
     // still override below). Active turn only exists in 'playing' phase,
     // with no auction in progress, pointing at a non-bankrupt participant.
     let currentTurnId: string | null = null;
-    {
+    if (this.autoAndPinAllowed()) {
       const s = root.state;
       if (s.phase === 'playing' && !s.auction) {
         const candidate = s.participants[s.currentPlayerIndex];
@@ -411,9 +448,15 @@ export class LandingChipsOverlay {
       }
     }
 
-    // Hover > current turn > pin.
-    const activeId =
-      this.hoveredParticipantId ?? currentTurnId ?? this.pinnedParticipantId;
+    // Hover > current turn > pin. Hover survives even when the main toggle is
+    // off (so the user can peek); current turn and pin are gated above.
+    const hoverActive = this.hoverAllowed()
+      ? this.hoveredParticipantId
+      : null;
+    const pinActive = this.autoAndPinAllowed()
+      ? this.pinnedParticipantId
+      : null;
+    const activeId = hoverActive ?? currentTurnId ?? pinActive;
     if (!activeId) {
       this.clear();
       return;

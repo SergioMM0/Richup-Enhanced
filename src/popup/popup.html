@@ -73,10 +73,17 @@
         </label>
         <label class="row">
           <span class="row-label">
-            <span class="row-label-text">Landing predictions</span>
-            <small class="row-help">Dice-sum chips on the board — auto-follow current turn.</small>
+            <span class="row-label-text">Auto-show landing chips</span>
+            <small class="row-help">Keep dice-sum chips on the board for whoever's turn it is, plus pinned players. Hovering a player always works — toggle that below.</small>
           </span>
           <input type="checkbox" data-key="showLandingChips" />
+        </label>
+        <label class="row row-sub" data-reveal-when-off="showLandingChips">
+          <span class="row-label">
+            <span class="row-label-text">Disable hover chips too</span>
+            <small class="row-help">Don't show chips even when you hover a player.</small>
+          </span>
+          <input type="checkbox" data-key="disableHoverLandingChips" />
         </label>
       </section>
 

@@ -6,6 +6,7 @@ export const DEFAULT_SETTINGS: RUESettings = {
   overlaysEnabled: true,
   showInfoMenu: true,
   showLandingChips: true,
+  disableHoverLandingChips: false,
   overlayOpacity: 0.85,
   theme: 'dark',
   densityMode: 'compact',

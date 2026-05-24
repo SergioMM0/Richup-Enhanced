@@ -38,6 +38,20 @@ function applyValuesToInputs(settings: RUESettings): void {
       const key = select.dataset.key as EnumKey;
       select.value = String(settings[key]);
     });
+
+  applyConditionalReveals(settings);
+}
+
+// Rows tagged with `data-reveal-when-off="<key>"` only appear when their
+// gating checkbox is off. Used today by the on-hover landing-prediction
+// sub-option, which is irrelevant while the main toggle is on.
+function applyConditionalReveals(settings: RUESettings): void {
+  document
+    .querySelectorAll<HTMLElement>('[data-reveal-when-off]')
+    .forEach((row) => {
+      const key = row.dataset.revealWhenOff as BoolKey;
+      row.hidden = settings[key] === true;
+    });
 }
 
 async function init() {
@@ -47,9 +61,12 @@ async function init() {
   document
     .querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-key]')
     .forEach((input) => {
-      input.addEventListener('change', () => {
+      input.addEventListener('change', async () => {
         const key = input.dataset.key as BoolKey;
-        void saveSettings({ [key]: input.checked } as Partial<RUESettings>);
+        await saveSettings({ [key]: input.checked } as Partial<RUESettings>);
+        // Conditional-reveal rows key off this checkbox's value, so toggle
+        // them in lockstep instead of waiting for a settings round-trip.
+        applyConditionalReveals(await getSettings());
       });
     });
 

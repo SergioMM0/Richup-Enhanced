@@ -198,6 +198,12 @@ export interface RUESettings {
   overlaysEnabled: boolean;
   showInfoMenu: boolean;
   showLandingChips: boolean;
+  // When `showLandingChips` is on this is ignored — predictions show for
+  // hover, auto-follow, and pin. When `showLandingChips` is off, predictions
+  // still appear on hover unless this is also true, so users can quickly peek
+  // a player's landing options without the board being permanently dotted
+  // with chips.
+  disableHoverLandingChips: boolean;
   overlayOpacity: number;
   theme: RUETheme;
   densityMode: RUEDensity;
