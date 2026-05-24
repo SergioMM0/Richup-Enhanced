@@ -73,13 +73,12 @@ export class PlayersView implements InfoMenuView {
     const isDetailed = density === 'detailed';
     const isCurrentTurn = currentTurnId === r.participant.id;
     const isPinned = this.pinnedPlayerId === r.participant.id;
-    const hasCompleteSet = r.holdings.completedSets.size > 0;
+    const completeSetCount = r.holdings.completedSets.size;
 
     const row = document.createElement('section');
     let cls = 'info-menu__player-row';
     if (isDetailed) cls += ' info-menu__player-row--expanded';
     if (isCurrentTurn) cls += ' info-menu__player-row--current';
-    if (hasCompleteSet) cls += ' info-menu__player-row--has-set';
     row.className = cls;
     row.style.setProperty('--tab-color', r.participant.appearance);
     // Tag with participant id so LandingChipsOverlay's hover handler can match.
@@ -103,6 +102,16 @@ export class PlayersView implements InfoMenuView {
 
     top.appendChild(rankBadge);
     top.appendChild(name);
+    if (completeSetCount > 0) {
+      const setBadge = document.createElement('span');
+      setBadge.className = 'info-menu__player-row-set';
+      setBadge.textContent = '★'.repeat(completeSetCount);
+      setBadge.title =
+        completeSetCount === 1
+          ? 'Holds 1 complete monopoly'
+          : `Holds ${completeSetCount} complete monopolies`;
+      top.appendChild(setBadge);
+    }
     top.appendChild(total);
 
     const pinBtn = document.createElement('button');

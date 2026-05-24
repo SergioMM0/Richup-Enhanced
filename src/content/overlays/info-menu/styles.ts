@@ -507,21 +507,15 @@ export const INFO_MENU_CSS = `
   .info-menu__player-row--expanded {
     background: var(--rue-bg-elev);
   }
-  /* Player has at least one completed monopoly — gold ring in --rue-rent so
-     the signal doesn't share a color with the tab-color current-turn highlight
-     (same token used by the ★ glyph and hotel chips). Border-left stays in
-     tab-color so player identity is still readable. */
-  .info-menu__player-row--has-set {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--rue-rent) 55%, transparent),
-      0 0 6px color-mix(in srgb, var(--rue-rent) 25%, transparent);
-  }
-  .info-menu__player-row--current.info-menu__player-row--has-set {
-    /* Background tint from --current already conveys whose turn it is —
-       keep the gold ring crisp without doubling colors. */
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--rue-rent) 65%, transparent),
-      0 0 8px color-mix(in srgb, var(--rue-rent) 30%, transparent);
+  /* Subtle monopoly indicator next to the player name — reuses the gold ★
+     from the holdings rows so the signal is consistent across views. */
+  .info-menu__player-row-set {
+    flex: 0 0 auto;
+    color: var(--rue-rent);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 700;
+    user-select: none;
   }
   .info-menu__player-row-top {
     display: flex;
