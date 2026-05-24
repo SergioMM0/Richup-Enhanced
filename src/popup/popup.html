@@ -12,33 +12,79 @@
       <p class="version">v0.1.0</p>
     </header>
     <main>
-      <label class="row">
-        <span>Overlays enabled</span>
-        <input type="checkbox" data-key="overlaysEnabled" />
-      </label>
-      <label class="row">
-        <span>Show info menu</span>
-        <input type="checkbox" data-key="showInfoMenu" />
-      </label>
-      <label class="row">
-        <span>Show landing chips on player hover</span>
-        <input type="checkbox" data-key="showLandingChips" />
-      </label>
-      <label class="row">
-        <span>Auto-follow current turn</span>
-        <input type="checkbox" data-key="showLandingChipsForCurrentTurn" />
-      </label>
-      <label class="row column">
-        <span>Overlay opacity</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.05"
-          data-key="overlayOpacity"
-        />
-        <output data-output-for="overlayOpacity"></output>
-      </label>
+      <section class="group">
+        <h2 class="group-title">General</h2>
+        <label class="row">
+          <span class="row-label">
+            <span class="row-label-text">Enable overlays</span>
+            <small class="row-help">Master switch for everything below.</small>
+          </span>
+          <input type="checkbox" data-key="overlaysEnabled" />
+        </label>
+        <label class="row column">
+          <span class="row-label">
+            <span class="row-label-text">Density</span>
+            <small class="row-help">Compact hides niche stats; detailed shows everything.</small>
+          </span>
+          <select data-key="densityMode" data-kind="enum">
+            <option value="compact">Compact</option>
+            <option value="detailed">Detailed</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Appearance</h2>
+        <label class="row column">
+          <span class="row-label">
+            <span class="row-label-text">Theme</span>
+            <small class="row-help">Switch instantly — no page reload needed.</small>
+          </span>
+          <select data-key="theme" data-kind="enum">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="high-contrast">High contrast</option>
+          </select>
+        </label>
+        <label class="row column">
+          <span class="row-label">
+            <span class="row-label-text">Overlay opacity</span>
+            <small class="row-help">Lower it to peek at the host page underneath.</small>
+          </span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            data-key="overlayOpacity"
+          />
+          <output data-output-for="overlayOpacity"></output>
+        </label>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Show</h2>
+        <label class="row">
+          <span class="row-label">
+            <span class="row-label-text">Players panel</span>
+            <small class="row-help">Ranked list with cash, properties, and pin button.</small>
+          </span>
+          <input type="checkbox" data-key="showInfoMenu" />
+        </label>
+        <label class="row">
+          <span class="row-label">
+            <span class="row-label-text">Landing predictions</span>
+            <small class="row-help">Dice-sum chips on the board — auto-follow current turn.</small>
+          </span>
+          <input type="checkbox" data-key="showLandingChips" />
+        </label>
+      </section>
+
+      <footer>
+        <button type="button" id="reset" class="reset-button">
+          Reset to defaults
+        </button>
+      </footer>
     </main>
     <script type="module" src="./popup.ts"></script>
   </body>

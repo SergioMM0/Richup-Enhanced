@@ -6,125 +6,152 @@ import type {
   Participant,
   RootStoreState,
 } from '@shared/types';
-import {
-  evaluateAuction,
-  type AuctionAdvice,
-} from '../../analytics/auction';
+import { evaluateAuction, type AuctionAdvice } from '../../analytics/auction';
 import { formatMoney } from '../../analytics/player';
 import { getCityFlagEmoji } from '../../analytics/flags';
 import type { InfoMenuView, ViewContext } from './types';
 
-const TICK_INTERVAL_MS = 1000;
-
-interface ChipEntry {
-  wrap: HTMLDivElement;
-  el: HTMLButtonElement;
-  participant: Participant;
-}
-
 export class AuctionView implements InfoMenuView {
-  readonly id = 'auction';
+  readonly id = 'auction' as const;
+  readonly icon = '⚒';
   readonly label = 'Auction';
 
   private ctx: ViewContext | null = null;
-  private timerId: number | null = null;
-  private chipsEl: HTMLDivElement;
-  private chips = new Map<string, ChipEntry>();
-  private activePerspectiveId: string | null = null;
-
-  constructor() {
-    this.chipsEl = document.createElement('div');
-    this.chipsEl.className = 'info-menu__chips';
-    this.chipsEl.setAttribute('role', 'tablist');
-  }
 
   attach(ctx: ViewContext): void {
     this.ctx = ctx;
-    // Single 1s tick to refresh the countdown row. The shell only re-renders
-    // the active tab on each tick, so when the user is on a different tab
-    // this ticks at zero visible cost (no DOM mutation). When no auction is
-    // active, renderBody returns the cached empty message — also cheap.
-    this.timerId = window.setInterval(() => {
-      this.ctx?.requestUpdate();
-    }, TICK_INTERVAL_MS);
   }
 
-  resetSession(): void {
-    for (const entry of this.chips.values()) entry.wrap.remove();
-    this.chips.clear();
-    this.activePerspectiveId = null;
+  hasNotification(state: RootStoreState | null): boolean {
+    return Boolean(state?.state?.auction);
   }
 
-  destroy(): void {
-    if (this.timerId !== null) {
-      clearInterval(this.timerId);
-      this.timerId = null;
-    }
-    for (const entry of this.chips.values()) entry.wrap.remove();
-    this.chips.clear();
-    this.activePerspectiveId = null;
-    this.ctx = null;
-  }
+  render(state: RootStoreState | null): HTMLElement {
+    const root = document.createElement('div');
+    root.className = 'info-menu__view-pad';
 
-  renderBody(state: RootStoreState | null): HTMLElement {
-    if (!state) return this.emptyMessage('Waiting for game state…');
+    if (!state) return this.empty(root, 'Waiting for game state…');
     const inner = state.state;
-    if (!inner) return this.emptyMessage('Waiting for game state…');
-    if (!inner.auction) return this.emptyMessage('No auction in progress');
+    if (!inner) return this.empty(root, 'Waiting for game state…');
+    if (!inner.auction) return this.empty(root, 'No auction in progress');
 
-    // The auction object's exact shape is unverified — wrap evaluation so a
-    // throw inside the analytics module surfaces a useful message instead of
-    // bubbling up and leaving shell.body.replaceChildren never called (which
-    // strands the body on whatever it rendered before the auction started).
-    const focalId = this.activePerspectiveId ?? state.selfParticipantId;
     let advice: AuctionAdvice | null;
     try {
-      advice = evaluateAuction(inner, focalId);
+      advice = evaluateAuction(inner, state.selfParticipantId);
     } catch (err) {
-      console.error('[RUE] auction advisor crashed', err, {
-        auction: inner.auction,
-        selfId: focalId,
-      });
-      return this.emptyMessage('Advisor crashed — check the console for details');
+      console.error('[RUE] auction advisor crashed', err);
+      return this.empty(root, 'Advisor crashed — check the console');
     }
     if (!advice) {
-      return this.emptyMessage(
-        'Advisor unavailable (you may be bankrupt or disconnected)',
+      return this.empty(
+        root,
+        'Advisor unavailable (bankrupt or disconnected)',
       );
     }
 
     const participants = Array.isArray(inner.participants)
       ? inner.participants
       : [];
+    const density = this.ctx?.settings().densityMode ?? 'compact';
 
-    const card = document.createElement('section');
-    card.className = 'info-menu__rank-card';
-    const accent = this.accentFor(advice, participants);
-    card.style.setProperty('--tab-color', accent);
-
-    card.appendChild(this.renderHeader(advice));
-    if (advice.notice) card.appendChild(this.summaryLine(advice.notice));
-
-    if (!advice.available) {
-      // Property-shaped tile we can't price — already-owned-by-self or
-      // somehow auctioning a non-property. Header + notice is enough.
-      return card;
+    root.appendChild(this.renderHeader(advice));
+    root.appendChild(this.renderVerdict(advice));
+    root.appendChild(this.renderCountdownRow(advice));
+    if (advice.available) {
+      root.appendChild(this.renderHighBidRow(advice, participants));
     }
 
-    card.appendChild(this.bigBidRow(advice));
-    card.appendChild(this.passOrTip(advice));
+    if (density === 'detailed' && advice.available) {
+      root.appendChild(this.divider());
+      root.appendChild(this.renderComponents(advice, participants));
+    }
 
-    card.appendChild(this.divider());
+    return root;
+  }
 
-    card.appendChild(
+  private renderHeader(advice: AuctionAdvice): HTMLElement {
+    const head = document.createElement('div');
+    head.className = 'info-menu__opp-head';
+
+    const badge = document.createElement('span');
+    badge.className = 'info-menu__opp-badge';
+    badge.textContent = '🔨';
+
+    const name = document.createElement('span');
+    name.className = 'info-menu__opp-name';
+    name.textContent = this.tileLabel(advice.block);
+    name.title = name.textContent;
+
+    head.appendChild(badge);
+    head.appendChild(name);
+
+    if (advice.available) {
+      const max = document.createElement('span');
+      max.className = 'info-menu__opp-score';
+      max.textContent = formatMoney(advice.maxBid);
+      max.title = 'Recommended max bid';
+      head.appendChild(max);
+    }
+    return head;
+  }
+
+  private renderVerdict(advice: AuctionAdvice): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'info-menu__opp-summary';
+    if (advice.notice) {
+      el.textContent = advice.notice;
+      return el;
+    }
+    if (advice.pass) {
+      el.textContent = "Pass — can't even break even on a forced mortgage";
+      el.classList.add('info-menu__opp-summary--warn');
+    } else if (
+      advice.components.currentHighBid > 0 &&
+      advice.components.currentHighBid >= advice.maxBid
+    ) {
+      el.textContent = 'High bid above your ceiling — let it go';
+      el.classList.add('info-menu__opp-summary--warn');
+    } else {
+      el.textContent = `Open at ${formatMoney(advice.suggestedOpening)} · max ${formatMoney(advice.maxBid)}`;
+    }
+    return el;
+  }
+
+  private renderCountdownRow(advice: AuctionAdvice): HTMLElement {
+    return this.row('Time left', this.formatSeconds(advice.components.secondsRemaining));
+  }
+
+  private renderHighBidRow(
+    advice: AuctionAdvice,
+    participants: Participant[],
+  ): HTMLElement {
+    const id = advice.components.currentHighBidderId;
+    const amount = advice.components.currentHighBid;
+    if (id === null && amount === 0) {
+      return this.row('High bid', 'No bids yet');
+    }
+    const name = id
+      ? participants.find((p) => p.id === id)?.name ?? 'opponent'
+      : 'opponent';
+    return this.row(`High bid (${name})`, formatMoney(amount));
+  }
+
+  private renderComponents(
+    advice: AuctionAdvice,
+    participants: Participant[],
+  ): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'info-menu__opp-detail';
+
+    wrap.appendChild(
       this.row(
         `Expected rent (${advice.components.horizonRolls} rolls)`,
         formatMoney(advice.components.expectedRent),
-        `≈ ${formatMoney(advice.components.expectedRentPerRoll)} per roll, summed over ${advice.components.horizonRolls} expected opponent rolls`,
+        `≈ ${formatMoney(advice.components.expectedRentPerRoll)} per roll over ${advice.components.horizonRolls} expected opponent rolls`,
       ),
     );
     if (advice.components.setUplift > 0) {
-      card.appendChild(
+      wrap.appendChild(
         this.row(
           'Set uplift',
           formatMoney(advice.components.setUplift),
@@ -133,236 +160,42 @@ export class AuctionView implements InfoMenuView {
       );
     }
     if (advice.components.denialBonus > 0) {
-      card.appendChild(
+      wrap.appendChild(
         this.row(
           'Denial value',
           formatMoney(advice.components.denialBonus),
-          'Half of the rent uplift the opponent would gain by completing this set',
+          "Half of the rent uplift the opponent would gain by completing this set",
         ),
       );
     }
-    card.appendChild(
+    wrap.appendChild(
       this.row(
         'Liquidity cap',
         formatMoney(advice.components.liquidityCap),
-        'Hard ceiling: you should not commit more than this fraction of cash to the auction',
+        'Hard ceiling: do not commit more than this fraction of cash to the auction',
       ),
     );
     if (advice.components.mortgageFloor > 0) {
-      card.appendChild(
+      wrap.appendChild(
         this.row(
           'Mortgage floor',
           formatMoney(advice.components.mortgageFloor),
-          'Recoverable by mortgaging the tile immediately after winning. Sets a floor on the max bid even when expected rent is low.',
+          'Recoverable by mortgaging the tile after winning',
         ),
       );
     }
-
-    const threatRow = this.threatRow(advice, participants);
-    if (threatRow) card.appendChild(threatRow);
-
-    card.appendChild(this.divider());
-
-    const highRow = this.highBidRow(advice, participants);
-    if (highRow) card.appendChild(highRow);
-    card.appendChild(
-      this.row('Time left', this.formatSeconds(advice.components.secondsRemaining)),
-    );
-
-    return card;
-  }
-
-  renderSubHeader(state: RootStoreState | null): HTMLElement | null {
-    const participants = Array.isArray(state?.state?.participants)
-      ? state!.state!.participants
-      : [];
-    const active = participants.filter((p) => p.bankruptedAt === null);
-    if (active.length === 0) return null;
-
-    this.ensureActivePerspective(active, state?.selfParticipantId ?? '');
-    this.reconcileChips(active);
-
-    const wrapper = document.createElement('div');
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
-    wrapper.style.gap = '4px';
-
-    const auction = state?.state?.auction;
-    const block = auction ? state?.state?.blocks?.[auction.blockIndex] : null;
-    if (auction && block) {
-      const sub = document.createElement('div');
-      sub.className = 'rue-auction-subheader';
-      const label = document.createElement('span');
-      label.className = 'rue-auction-subheader__label';
-      label.textContent = 'Auction:';
-      const tile = document.createElement('span');
-      tile.className = 'rue-auction-subheader__tile';
-      tile.textContent = this.tileLabel(block);
-      const price = document.createElement('span');
-      price.className = 'rue-auction-subheader__price';
-      const listPrice = (block as { price?: number }).price;
-      price.textContent =
-        typeof listPrice === 'number' ? `list ${formatMoney(listPrice)}` : '';
-      sub.appendChild(label);
-      sub.appendChild(tile);
-      if (price.textContent) sub.appendChild(price);
-      wrapper.appendChild(sub);
+    const threatId = advice.components.threatOpponentId;
+    if (threatId) {
+      const opp = participants.find((p) => p.id === threatId);
+      wrap.appendChild(
+        this.row(
+          `Top threat (${opp?.name ?? 'opponent'})`,
+          formatMoney(advice.components.threatCeiling),
+          'Estimated ceiling another player can credibly bid: 40% of cash, scaled by interest',
+        ),
+      );
     }
-
-    wrapper.appendChild(this.chipsEl);
-    return wrapper;
-  }
-
-  private ensureActivePerspective(
-    active: Participant[],
-    selfId: string,
-  ): void {
-    const stillActive = this.activePerspectiveId
-      ? active.some((p) => p.id === this.activePerspectiveId)
-      : false;
-    if (stillActive) return;
-    const fallback = active[0];
-    if (!fallback) return;
-    const self = active.find((p) => p.id === selfId);
-    this.activePerspectiveId = (self ?? fallback).id;
-  }
-
-  private reconcileChips(active: Participant[]): void {
-    const seen = new Set<string>();
-    for (const p of active) {
-      seen.add(p.id);
-      let entry = this.chips.get(p.id);
-      if (!entry) {
-        const wrap = document.createElement('div');
-        wrap.className = 'info-menu__chip-wrap';
-
-        const el = document.createElement('button');
-        el.type = 'button';
-        el.className = 'info-menu__chip';
-        el.setAttribute('role', 'tab');
-        el.addEventListener('click', () => {
-          this.activePerspectiveId = p.id;
-          this.ctx?.requestUpdate();
-        });
-
-        wrap.appendChild(el);
-        this.chipsEl.appendChild(wrap);
-        entry = { wrap, el, participant: p };
-        this.chips.set(p.id, entry);
-      }
-      entry.participant = p;
-      entry.wrap.style.setProperty('--tab-color', p.appearance);
-      entry.el.style.setProperty('--tab-color', p.appearance);
-      entry.el.textContent = p.name;
-      entry.el.title = p.name;
-      const isActive = p.id === this.activePerspectiveId;
-      entry.el.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    }
-    for (const id of [...this.chips.keys()]) {
-      if (!seen.has(id)) {
-        this.chips.get(id)?.wrap.remove();
-        this.chips.delete(id);
-      }
-    }
-  }
-
-  // Header row — big bold name + max bid as the "total".
-  private renderHeader(advice: AuctionAdvice): HTMLElement {
-    const header = document.createElement('div');
-    header.className = 'info-menu__rank-header';
-
-    const badge = document.createElement('span');
-    badge.className = 'info-menu__rank-badge';
-    badge.textContent = '🔨';
-    badge.title = 'Auction';
-
-    const name = document.createElement('span');
-    name.className = 'info-menu__rank-name';
-    name.textContent = this.tileLabel(advice.block);
-    name.title = name.textContent ?? '';
-
-    const total = document.createElement('span');
-    total.className = 'info-menu__rank-total';
-    if (advice.available) {
-      total.textContent = formatMoney(advice.maxBid);
-      total.title = 'Recommended max bid';
-    } else {
-      total.textContent = '—';
-    }
-
-    header.appendChild(badge);
-    header.appendChild(name);
-    header.appendChild(total);
-    return header;
-  }
-
-  private bigBidRow(advice: AuctionAdvice): HTMLElement {
-    return this.row(
-      'Open at',
-      formatMoney(advice.suggestedOpening),
-      'Suggested opening bid: low enough to leave headroom, high enough to skip pointless rounds',
-    );
-  }
-
-  private passOrTip(advice: AuctionAdvice): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'info-menu__rank-summary';
-    if (advice.pass) {
-      el.textContent = "Recommend: pass — can't even break even on a forced mortgage";
-      el.style.color = '#ffbcbc';
-    } else if (
-      advice.components.currentHighBid > 0 &&
-      advice.components.currentHighBid >= advice.maxBid
-    ) {
-      el.textContent = 'High bid above your ceiling — let it go';
-      el.style.color = '#ffbcbc';
-    } else {
-      el.textContent = `Bid up to ${formatMoney(advice.maxBid)}`;
-    }
-    return el;
-  }
-
-  private threatRow(
-    advice: AuctionAdvice,
-    participants: Participant[],
-  ): HTMLElement | null {
-    const id = advice.components.threatOpponentId;
-    if (!id) return null;
-    const opp = participants.find((p) => p.id === id);
-    const name = opp?.name ?? 'opponent';
-    return this.row(
-      `Top threat (${name})`,
-      formatMoney(advice.components.threatCeiling),
-      'Estimated max another player can credibly bid: 40% of their cash, scaled by their interest in this specific tile (existing same-set / airport / company holdings).',
-    );
-  }
-
-  private highBidRow(
-    advice: AuctionAdvice,
-    participants: Participant[],
-  ): HTMLElement | null {
-    const id = advice.components.currentHighBidderId;
-    const amount = advice.components.currentHighBid;
-    if (id === null && amount === 0) {
-      return this.row('Current high bid', 'No bids yet');
-    }
-    const name = id
-      ? participants.find((p) => p.id === id)?.name ?? 'opponent'
-      : 'opponent';
-    return this.row(
-      `High bid (${name})`,
-      formatMoney(amount),
-      'Highest standing bid in the auction right now',
-    );
-  }
-
-  private accentFor(advice: AuctionAdvice, participants: Participant[]): string {
-    const id = advice.components.currentHighBidderId;
-    if (id) {
-      const opp = participants.find((p) => p.id === id);
-      if (opp?.appearance) return opp.appearance;
-    }
-    return '#888';
+    return wrap;
   }
 
   private tileLabel(block: Block): string {
@@ -383,13 +216,6 @@ export class AuctionView implements InfoMenuView {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m}m ${s.toString().padStart(2, '0')}s`;
-  }
-
-  private summaryLine(text: string): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'info-menu__rank-summary';
-    el.textContent = text;
-    return el;
   }
 
   private divider(): HTMLElement {
@@ -414,10 +240,11 @@ export class AuctionView implements InfoMenuView {
     return row;
   }
 
-  private emptyMessage(text: string): HTMLElement {
+  private empty(root: HTMLElement, text: string): HTMLElement {
     const el = document.createElement('div');
     el.className = 'info-menu__empty';
     el.textContent = text;
-    return el;
+    root.appendChild(el);
+    return root;
   }
 }

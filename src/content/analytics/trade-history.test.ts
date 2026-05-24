@@ -6,7 +6,7 @@ import {
   formatRelativeTime,
   inferResolution,
   tradeInvolvesPlayer,
-} from './history-view';
+} from './trade-history';
 
 const makeTrade = (id: string, overrides: Partial<Trade> = {}): Trade => ({
   id,

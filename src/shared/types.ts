@@ -191,10 +191,14 @@ export interface ZustandStore {
   getInitialState: Function;
 }
 
+export type RUETheme = 'dark' | 'light' | 'high-contrast';
+export type RUEDensity = 'compact' | 'detailed';
+
 export interface RUESettings {
   overlaysEnabled: boolean;
   showInfoMenu: boolean;
   showLandingChips: boolean;
-  showLandingChipsForCurrentTurn: boolean;
   overlayOpacity: number;
+  theme: RUETheme;
+  densityMode: RUEDensity;
 }

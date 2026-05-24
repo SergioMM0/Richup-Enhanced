@@ -143,8 +143,19 @@ export class OverlayManager {
 
   setSettings(settings: RUESettings): void {
     this.settings = settings;
+    this.applyShellAttributes();
     this.infoMenu?.applySettings(settings);
     this.landingChips?.applySettings(settings);
+  }
+
+  // Theme + density CSS variables are defined on :host[data-theme="..."] and
+  // :host([data-density="..."]) inside the shared shadow CSS. The host element
+  // is the only place those attributes can sit and still be matched by :host()
+  // selectors — setting them anywhere inside the shadow tree wouldn't work.
+  private applyShellAttributes(): void {
+    if (!this.host) return;
+    this.host.dataset.theme = this.settings.theme;
+    this.host.dataset.density = this.settings.densityMode;
   }
 
   private mountShadow(): void {
@@ -170,5 +181,6 @@ export class OverlayManager {
     document.body.appendChild(host);
     this.host = host;
     this.rootEl = root;
+    this.applyShellAttributes();
   }
 }

@@ -6,14 +6,26 @@ export const DEFAULT_SETTINGS: RUESettings = {
   overlaysEnabled: true,
   showInfoMenu: true,
   showLandingChips: true,
-  showLandingChipsForCurrentTurn: false,
   overlayOpacity: 0.85,
+  theme: 'dark',
+  densityMode: 'compact',
 };
+
+// Strips legacy keys from stored settings before merging with defaults. Keeps
+// `getSettings()` total against the current `RUESettings` shape no matter what
+// older builds wrote to `chrome.storage.sync` previously.
+function normalize(stored: Record<string, unknown>): Partial<RUESettings> {
+  const { showLandingChipsForCurrentTurn: _drop, ...rest } = stored as {
+    showLandingChipsForCurrentTurn?: unknown;
+  } & Record<string, unknown>;
+  void _drop;
+  return rest as Partial<RUESettings>;
+}
 
 export async function getSettings(): Promise<RUESettings> {
   const out = await chrome.storage.sync.get(SETTINGS_KEY);
-  const stored = (out[SETTINGS_KEY] ?? {}) as Partial<RUESettings>;
-  return { ...DEFAULT_SETTINGS, ...stored };
+  const stored = (out[SETTINGS_KEY] ?? {}) as Record<string, unknown>;
+  return { ...DEFAULT_SETTINGS, ...normalize(stored) };
 }
 
 export async function saveSettings(patch: Partial<RUESettings>): Promise<void> {
@@ -32,9 +44,9 @@ export function onSettingsChange(
     if (area !== 'sync') return;
     if (!(SETTINGS_KEY in changes)) return;
     const newValue = changes[SETTINGS_KEY]?.newValue as
-      | Partial<RUESettings>
+      | Record<string, unknown>
       | undefined;
-    cb({ ...DEFAULT_SETTINGS, ...(newValue ?? {}) });
+    cb({ ...DEFAULT_SETTINGS, ...normalize(newValue ?? {}) });
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);

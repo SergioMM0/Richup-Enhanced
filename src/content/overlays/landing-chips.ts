@@ -8,9 +8,12 @@ type TileSide = 'top' | 'right' | 'bottom' | 'left' | 'corner';
 // Chip footprint. The chip is meant to *replace* the host page's price label,
 // so we anchor it flush against the tile's outer edge with a 1px inset. Only
 // the perpendicular (short-axis) dimension matters here in TS — the chip's
-// box dimensions live in CSS, since top/bottom render 64x30 and left/right
-// flip to 30x64 (vertical) so the chip stands upright along the board side.
-const CHIP_SHORT = 30;
+// box dimensions live in CSS, since top/bottom render WxH and left/right
+// flip via rotate() so the chip stands upright along the board side.
+// Detailed density: 68x32; compact density (default): 56x26. Both need their
+// CHIP_SHORT to match the rendered height so the anchor still centers correctly.
+const CHIP_SHORT_DETAILED = 32;
+const CHIP_SHORT_COMPACT = 26;
 const CHIP_INSET = 1;
 
 function tileSide(index: number): TileSide {
@@ -41,20 +44,28 @@ function debug(...args: unknown[]): void {
 function chipAnchor(
   tileEl: HTMLElement,
   tileIndex: number,
+  chipShort: number,
 ): { x: number; y: number } {
   const r = tileEl.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
   switch (tileSide(tileIndex)) {
-    case 'top':    return { x: cx, y: r.top + CHIP_INSET + CHIP_SHORT / 2 };
-    case 'bottom': return { x: cx, y: r.bottom - CHIP_INSET - CHIP_SHORT / 2 };
-    case 'left':   return { x: r.left + CHIP_INSET + CHIP_SHORT / 2, y: cy };
-    case 'right':  return { x: r.right - CHIP_INSET - CHIP_SHORT / 2, y: cy };
+    case 'top':    return { x: cx, y: r.top + CHIP_INSET + chipShort / 2 };
+    case 'bottom': return { x: cx, y: r.bottom - CHIP_INSET - chipShort / 2 };
+    case 'left':   return { x: r.left + CHIP_INSET + chipShort / 2, y: cy };
+    case 'right':  return { x: r.right - CHIP_INSET - chipShort / 2, y: cy };
     case 'corner': return { x: cx, y: cy };
   }
 }
 
 export const LANDING_CHIPS_CSS = `
+  /* Chip dimensions key off density so the panel and the on-board chips
+     flip together. Compact is the default; detailed grows them. The TS
+     CHIP_SHORT_* constants mirror these numbers so the chipAnchor math
+     centers the chip on the tile edge. */
+  :host { --rue-chip-w: 56px; --rue-chip-h: 26px; }
+  :host([data-density="detailed"]) { --rue-chip-w: 68px; --rue-chip-h: 32px; }
+
   .rue-landing-chips {
     position: absolute;
     inset: 0;
@@ -62,8 +73,8 @@ export const LANDING_CHIPS_CSS = `
   }
   .rue-landing-chip {
     position: absolute;
-    width: 64px;
-    height: 30px;
+    width: var(--rue-chip-w);
+    height: var(--rue-chip-h);
     transform: translate(-50%, -50%);
     display: grid;
     grid-template-columns: 1fr auto;
@@ -73,17 +84,23 @@ export const LANDING_CHIPS_CSS = `
     align-items: center;
     padding: 3px 6px;
     box-sizing: border-box;
-    background: #0f121c;
-    color: #fff;
-    border-radius: 5px;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--rue-chip-bg);
+    color: var(--rue-fg);
+    border-radius: var(--rue-radius-sm);
+    font-family: 'Twemoji Country Flags', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     line-height: 1;
     pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--rue-shadow-chip);
     overflow: hidden;
+    opacity: 0;
+    animation: rue-chip-in 120ms ease-out forwards;
+  }
+  @keyframes rue-chip-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
   /* Side tiles rotate the entire chip box around its anchor center. The DOM
-     box stays 64x30; the rendered region becomes a 30x64 vertical strip.
+     box stays WxH; the rendered region becomes a HxW vertical strip.
      The translate(-50%, -50%) keeps the chip centered on (cx, cy); the
      subsequent rotate() spins around that same center because it's the
      default transform-origin. Inner layout (sum/price/rent grid) carries
@@ -99,7 +116,7 @@ export const LANDING_CHIPS_CSS = `
   .rue-landing-chip::before {
     content: "";
     position: absolute;
-    background: var(--rue-chip-color, #ffffff);
+    background: var(--rue-chip-color, var(--rue-fg));
     pointer-events: none;
   }
   .rue-landing-chip--side-top::before {
@@ -116,7 +133,7 @@ export const LANDING_CHIPS_CSS = `
   }
   /* Corners have no clear "outer edge" to stripe — fall back to a thin frame. */
   .rue-landing-chip--side-corner {
-    border: 1.5px solid var(--rue-chip-color, #ffffff);
+    border: 1.5px solid var(--rue-chip-color, var(--rue-fg));
   }
   .rue-landing-chip--side-corner::before {
     display: none;
@@ -137,7 +154,7 @@ export const LANDING_CHIPS_CSS = `
     grid-area: 2 / 1 / 3 / 3;
     font-size: 11px;
     font-weight: 700;
-    color: #ffd27a;
+    color: var(--rue-rent);
     text-align: center;
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -145,14 +162,14 @@ export const LANDING_CHIPS_CSS = `
     text-overflow: ellipsis;
   }
   .rue-landing-chip--redirected {
-    background: #4a1f1f;
+    background: var(--rue-danger);
   }
   .rue-landing-chip--redirected .rue-landing-chip__rent {
-    color: #ffb0b0;
+    color: var(--rue-warn);
     font-size: 10px;
   }
   .rue-landing-chip--uncertain .rue-landing-chip__rent {
-    color: #cfd8e3;
+    color: var(--rue-uncertain);
     font-style: italic;
     font-weight: 600;
     font-size: 10px;
@@ -175,7 +192,6 @@ export class LandingChipsOverlay {
   private hoveredParticipantId: string | null = null;
   private pinnedParticipantId: string | null = null;
   private lastRenderedKey: string | null = null;
-  private prevAutoFollow = false;
   private unsubscribe: (() => void) | null = null;
   private boundOver = (e: MouseEvent) => this.handleOver(e);
   private boundOut = (e: MouseEvent) => this.handleOut(e);
@@ -272,6 +288,7 @@ export class LandingChipsOverlay {
   }
 
   applySettings(settings: RUESettings): void {
+    const prevDensity = this.settings.densityMode;
     this.settings = settings;
     if (!this.container) return;
     const enabled = settings.overlaysEnabled && settings.showLandingChips;
@@ -282,13 +299,19 @@ export class LandingChipsOverlay {
       // surface a stale pin the user can't see the trigger for.
       this.pinnedParticipantId = null;
       this.clear();
+      return;
     }
-    const autoFollow = settings.showLandingChipsForCurrentTurn;
-    if (enabled && autoFollow !== this.prevAutoFollow) {
+    // Density flip changes chip height, which shifts the anchor offset.
+    if (settings.densityMode !== prevDensity) {
       this.lastRenderedKey = null;
       this.render();
     }
-    this.prevAutoFollow = autoFollow;
+  }
+
+  private get chipShort(): number {
+    return this.settings.densityMode === 'compact'
+      ? CHIP_SHORT_COMPACT
+      : CHIP_SHORT_DETAILED;
   }
 
   private isEnabled(): boolean {
@@ -352,13 +375,8 @@ export class LandingChipsOverlay {
   }
 
   private repositionIfActive(): void {
-    const autoFollow = this.settings.showLandingChipsForCurrentTurn;
-    if (
-      !this.hoveredParticipantId &&
-      !this.pinnedParticipantId &&
-      !autoFollow
-    )
-      return;
+    // Auto-follow current turn is the default behavior, so a render is
+    // always potentially relevant when state ticks.
     this.render();
   }
 
@@ -379,11 +397,12 @@ export class LandingChipsOverlay {
       return;
     }
 
+    // Auto-follow the current turn is the default behavior (hover and pin
+    // still override below). Active turn only exists in 'playing' phase,
+    // with no auction in progress, pointing at a non-bankrupt participant.
     let currentTurnId: string | null = null;
-    if (this.settings.showLandingChipsForCurrentTurn) {
+    {
       const s = root.state;
-      // Active turn only exists in 'playing' phase, with no auction in
-      // progress, pointing at a non-bankrupt participant.
       if (s.phase === 'playing' && !s.auction) {
         const candidate = s.participants[s.currentPlayerIndex];
         if (candidate && candidate.bankruptedAt === null) {
@@ -450,7 +469,11 @@ export class LandingChipsOverlay {
         continue;
       }
       const side = tileSide(prediction.tileIndex);
-      const { x: cx, y: cy } = chipAnchor(tileEl, prediction.tileIndex);
+      const { x: cx, y: cy } = chipAnchor(
+        tileEl,
+        prediction.tileIndex,
+        this.chipShort,
+      );
       el.style.left = `${cx}px`;
       el.style.top = `${cy}px`;
       el.style.setProperty('--rue-chip-color', color);

@@ -3,6 +3,7 @@ export interface InfoMenuLayout {
   top: number | null;
   width: number | null;
   height: number | null;
+  collapsed: boolean;
 }
 
 export const LAYOUT_KEY = 'rue:layout:v1';
@@ -12,6 +13,7 @@ export const DEFAULT_LAYOUT: InfoMenuLayout = {
   top: null,
   width: null,
   height: null,
+  collapsed: false,
 };
 
 // chrome.storage.local rather than .sync: panel geometry is genuinely per-device
