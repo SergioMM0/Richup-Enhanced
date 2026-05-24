@@ -54,6 +54,14 @@ describe('countryIdToIso2', () => {
     expect(countryIdToIso2('  Italy  ')).toBe('it');
   });
 
+  it('resolves adjective demonyms (richup.io "Cities of the World" format)', () => {
+    expect(countryIdToIso2('american')).toBe('us');
+    expect(countryIdToIso2('german')).toBe('de');
+    expect(countryIdToIso2('israeli')).toBe('il');
+    expect(countryIdToIso2('british')).toBe('gb');
+    expect(countryIdToIso2('japanese')).toBe('jp');
+  });
+
   it('returns empty for unknown ids', () => {
     expect(countryIdToIso2('atlantis')).toBe('');
     expect(countryIdToIso2('')).toBe('');
