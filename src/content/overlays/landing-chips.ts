@@ -10,11 +10,18 @@ type TileSide = 'top' | 'right' | 'bottom' | 'left' | 'corner';
 // the perpendicular (short-axis) dimension matters here in TS — the chip's
 // box dimensions live in CSS, since top/bottom render WxH and left/right
 // flip via rotate() so the chip stands upright along the board side.
-// Detailed density: 68x32; compact density (default): 56x26. Both need their
-// CHIP_SHORT to match the rendered height so the anchor still centers correctly.
+// Detailed density: 68x32; compact density (default): 56x26. These are the
+// design *targets*; render() shrinks the chip uniformly when the board is
+// scaled below their natural size (e.g. on small monitors). chipShort is
+// resolved per-render so the anchor inset still centers correctly.
+const CHIP_LONG_DETAILED = 68;
 const CHIP_SHORT_DETAILED = 32;
+const CHIP_LONG_COMPACT = 56;
 const CHIP_SHORT_COMPACT = 26;
 const CHIP_INSET = 1;
+// Min visible chip dimension. Below this the text becomes illegible — better
+// to clip off the edge of an absurdly small board than render unreadable dots.
+const CHIP_MIN_LONG = 24;
 
 function tileSide(index: number): TileSide {
   if (index === 0 || index === 10 || index === 20 || index === 30) return 'corner';
@@ -192,6 +199,9 @@ export class LandingChipsOverlay {
   private hoveredParticipantId: string | null = null;
   private pinnedParticipantId: string | null = null;
   private lastRenderedKey: string | null = null;
+  // Set by updateChipScale() once a real tile has been measured. Until then
+  // we fall back to the density-mode default in the chipShort getter.
+  private dynamicChipShort: number | null = null;
   private unsubscribe: (() => void) | null = null;
   private boundOver = (e: MouseEvent) => this.handleOver(e);
   private boundOut = (e: MouseEvent) => this.handleOut(e);
@@ -200,6 +210,7 @@ export class LandingChipsOverlay {
     if (id) this.debugTrigger(id);
   };
   private boundPin = (e: Event) => this.handlePin(e);
+  private boundResize = () => this.render();
 
   constructor(source: StateSource, settings: RUESettings) {
     this.source = source;
@@ -254,6 +265,12 @@ export class LandingChipsOverlay {
       this.boundPin as EventListener,
     );
 
+    // Board scales with viewport; resizing the window changes tile size which
+    // changes the chip dimensions we should use. render() short-circuits on
+    // lastRenderedKey, but the key includes chipShort, so a real geometry
+    // change will invalidate it naturally on the next pass.
+    window.addEventListener('resize', this.boundResize);
+
     console.log('[RUE landing-chips] mounted, listeners attached', {
       buildId: LANDING_CHIPS_BUILD,
     });
@@ -272,6 +289,7 @@ export class LandingChipsOverlay {
       'rue:pin-participant',
       this.boundPin as EventListener,
     );
+    window.removeEventListener('resize', this.boundResize);
     this.hoverRoot = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -322,9 +340,46 @@ export class LandingChipsOverlay {
   }
 
   private get chipShort(): number {
+    if (this.dynamicChipShort !== null) return this.dynamicChipShort;
     return this.settings.densityMode === 'compact'
       ? CHIP_SHORT_COMPACT
       : CHIP_SHORT_DETAILED;
+  }
+
+  // Measure a real board tile and shrink chips uniformly when the board has
+  // been scaled below the design target (small monitors, zoomed-out views).
+  // Without this, the fixed 56/68px chip width overflows narrow tiles and
+  // neighboring chips overlap each other on adjacent tiles. Side tiles all
+  // share dimensions, so probing any non-corner tile suffices.
+  private updateChipScale(): void {
+    if (!this.container) return;
+    const probe = document.querySelector<HTMLElement>(
+      '[data-board-block-index="1"]',
+    );
+    if (!probe) return;
+    const rect = probe.getBoundingClientRect();
+    const tileShort = Math.min(rect.width, rect.height);
+    if (tileShort < 4) return;
+
+    const defaultLong =
+      this.settings.densityMode === 'compact'
+        ? CHIP_LONG_COMPACT
+        : CHIP_LONG_DETAILED;
+    const defaultShort =
+      this.settings.densityMode === 'compact'
+        ? CHIP_SHORT_COMPACT
+        : CHIP_SHORT_DETAILED;
+
+    // 2px breathing room between adjacent chips on neighboring tiles.
+    const maxLong = Math.max(CHIP_MIN_LONG, tileShort - 2);
+    const scale = Math.min(1, maxLong / defaultLong);
+
+    const chipW = Math.round(defaultLong * scale);
+    const chipH = Math.round(defaultShort * scale);
+
+    this.container.style.setProperty('--rue-chip-w', `${chipW}px`);
+    this.container.style.setProperty('--rue-chip-h', `${chipH}px`);
+    this.dynamicChipShort = chipH;
   }
 
   // Hover predictions get their own enable path: even with the main "Landing
@@ -481,7 +536,12 @@ export class LandingChipsOverlay {
       return;
     }
 
-    const key = `${participant.id}:${participant.position}`;
+    // Resolve chip dimensions against the board's current render size before
+    // we key on the result. The same player at the same position can need
+    // re-layout if the board itself resized.
+    this.updateChipScale();
+
+    const key = `${participant.id}:${participant.position}:${this.chipShort}`;
     if (this.lastRenderedKey === key) return;
     this.lastRenderedKey = key;
     debug('render', { id: participant.id, pos: participant.position, phase });
